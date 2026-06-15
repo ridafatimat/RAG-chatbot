@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# React / Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Uploads
+uploads/
+backend/uploads/
