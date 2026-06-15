@@ -225,3 +225,6 @@ frontend/dist/
 # Uploads
 uploads/
 backend/uploads/
+
+backend/venv/
+backend/__pycache__/
