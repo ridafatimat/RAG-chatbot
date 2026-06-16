@@ -90,6 +90,8 @@ body {
   border-right: 1px solid #1a1a1a;
   padding: 28px 30px;
   background: #050505;
+  height: calc(100vh - 96px);
+  overflow-y: auto;
 }
 
 .chat-panel {
@@ -97,6 +99,8 @@ body {
   background: #050505;
   display: flex;
   flex-direction: column;
+  height: calc(100vh - 96px);
+  overflow: hidden;
 }
 
 .panel-label {
@@ -116,7 +120,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 9px;
   cursor: pointer;
   transition: 0.2s ease;
   margin-bottom: 16px;
@@ -140,6 +144,12 @@ body {
   text-align: center;
   max-width: 90%;
   word-break: break-word;
+}
+
+.file-types {
+  color: #555;
+  font-size: 13px;
+  text-align: center;
 }
 
 .process-btn {
@@ -175,7 +185,7 @@ body {
 }
 
 .retrieved-label {
-  margin-top: 12px;
+  margin-top: 22px;
   margin-bottom: 14px;
 }
 
@@ -203,6 +213,46 @@ body {
   font-size: 15px;
 }
 
+.uploaded-label {
+  margin-top: 28px;
+  margin-bottom: 14px;
+}
+
+.documents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.saved-doc-card {
+  background: #121212;
+  border: 1px solid #242424;
+  border-left: 4px solid #d63b32;
+  border-radius: 10px;
+  padding: 13px 15px;
+}
+
+.saved-doc-card span {
+  display: block;
+  color: #f1f1f1;
+  font-size: 15px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.saved-doc-card p {
+  margin: 6px 0 0;
+  color: #777;
+  font-size: 13px;
+}
+
+.empty-documents {
+  color: #666;
+  font-size: 14px;
+  margin: 0 0 18px;
+}
+
 .chat-area {
   flex: 1;
   display: flex;
@@ -210,6 +260,8 @@ body {
   gap: 18px;
   min-height: 0;
   padding-top: 4px;
+  padding-right: 8px;
+  overflow-y: auto;
 }
 
 .bot-message,
@@ -254,7 +306,9 @@ body {
   display: grid;
   grid-template-columns: 1fr 64px;
   gap: 14px;
-  margin-top: 20px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #1a1a1a;
 }
 
 .chat-input-row input {
@@ -276,6 +330,31 @@ body {
   font-weight: 900;
 }
 
+.document-panel::-webkit-scrollbar,
+.chat-area::-webkit-scrollbar,
+.preview-message::-webkit-scrollbar {
+  width: 8px;
+}
+
+.document-panel::-webkit-scrollbar-track,
+.chat-area::-webkit-scrollbar-track,
+.preview-message::-webkit-scrollbar-track {
+  background: #080808;
+}
+
+.document-panel::-webkit-scrollbar-thumb,
+.chat-area::-webkit-scrollbar-thumb,
+.preview-message::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 999px;
+}
+
+.document-panel::-webkit-scrollbar-thumb:hover,
+.chat-area::-webkit-scrollbar-thumb:hover,
+.preview-message::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
 @media (max-width: 900px) {
   .rag-layout {
     grid-template-columns: 1fr;
@@ -283,8 +362,14 @@ body {
   }
 
   .document-panel {
+    height: auto;
     border-right: none;
     border-bottom: 1px solid #1a1a1a;
+  }
+
+  .chat-panel {
+    height: auto;
+    min-height: 600px;
   }
 
   .rag-header {

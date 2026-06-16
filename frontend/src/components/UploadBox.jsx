@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function UploadBox() {
   const [file, setFile] = useState(null);
@@ -6,6 +6,24 @@ function UploadBox() {
   const [textPreview, setTextPreview] = useState("");
   const [loading, setLoading] = useState(false);
   const [documentName, setDocumentName] = useState("");
+  const [uploadedDocuments, setUploadedDocuments] = useState([]);
+
+  const API_BASE_URL = "http://127.0.0.1:8001";
+
+  const fetchDocuments = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/documents`);
+      const data = await response.json();
+
+      setUploadedDocuments(data.documents || []);
+    } catch (error) {
+      console.log("Could not fetch uploaded documents", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -18,7 +36,7 @@ function UploadBox() {
 
   const handleUpload = async () => {
     if (!file) {
-      setMessage("Please select a PDF file first.");
+      setMessage("Please select a document first.");
       return;
     }
 
@@ -30,7 +48,7 @@ function UploadBox() {
       setMessage("");
       setTextPreview("");
 
-      const response = await fetch("http://127.0.0.1:8000/upload", {
+      const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
         body: formData,
       });
@@ -44,6 +62,8 @@ function UploadBox() {
 
       setMessage(data.message);
       setTextPreview(data.text_preview);
+
+      await fetchDocuments();
     } catch (error) {
       setMessage("Could not connect to backend. Please make sure backend is running.");
     } finally {
@@ -74,13 +94,18 @@ function UploadBox() {
           <label className="drop-zone">
             <input
               type="file"
-              accept="application/pdf"
+              accept=".pdf,.txt,.docx,.pptx,.csv,.xlsx"
               onChange={handleFileChange}
               hidden
             />
 
             <div className="cloud-icon">☁</div>
+
             <p>{documentName ? documentName : "Drop file here"}</p>
+
+            <span className="file-types">
+              PDF, TXT, DOCX, PPTX, CSV, XLSX supported
+            </span>
           </label>
 
           <button
@@ -88,7 +113,7 @@ function UploadBox() {
             onClick={handleUpload}
             disabled={loading}
           >
-            {loading ? "Processing..." : "Process PDF"}
+            {loading ? "Processing..." : "Process Document"}
           </button>
 
           {message && <div className="small-status">{message}</div>}
@@ -108,6 +133,23 @@ function UploadBox() {
           <div className={`chunk-card ${textPreview ? "active" : ""}`}>
             <span>Chunk 3 —</span>
             <p>{textPreview ? "Details..." : "Waiting..."}</p>
+          </div>
+
+          <div className="panel-label uploaded-label">UPLOADED DOCUMENTS</div>
+
+          <div className="documents-list">
+            {uploadedDocuments.length === 0 ? (
+              <p className="empty-documents">No documents saved yet.</p>
+            ) : (
+              uploadedDocuments.map((doc) => (
+                <div className="saved-doc-card" key={doc._id}>
+                  <span>{doc.file_name}</span>
+                  <p>
+                    {doc.file_type} · {doc.full_text_length} characters extracted
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </aside>
 
