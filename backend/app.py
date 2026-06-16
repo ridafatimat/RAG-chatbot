@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from routes.upload_routes import router as upload_router
+
+try:
+    from routes.chat_routes import router as chat_router
+except ImportError:
+    chat_router = None
 
 app = FastAPI(
     title="RAG Chatbot Backend",
@@ -17,6 +23,9 @@ app.add_middleware(
 )
 
 app.include_router(upload_router)
+
+if chat_router:
+    app.include_router(chat_router)
 
 
 @app.get("/")
