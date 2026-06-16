@@ -1,90 +1,42 @@
-from flask import Flask, request, jsonify
-from dotenv import load_dotenv
-import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-# MongoDB
-from pymongo import MongoClient
+from routes.upload_routes import router as upload_router
 
-# ChromaDB
-import chromadb
-from chromadb.utils import embedding_functions
+try:
+    from routes.chat_routes import router as chat_router
+except ImportError:
+    chat_router = None
 
-# Load env file
-load_dotenv()
-
-app = Flask(__name__)
-
-# -----------------------------
-# 1. MONGO DB SETUP
-# -----------------------------
-mongo_uri = os.getenv("MONGO_URI")
-
-client = MongoClient(mongo_uri)
-db = client["rag_db"]
-chat_collection = db["chats"]
-
-# -----------------------------
-# 2. CHROMA DB SETUP
-# -----------------------------
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-
-# Transformers embedding model
-ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
+app = FastAPI(
+    title="RAG Chatbot Backend",
+    description="Backend API for the RAG chatbot project",
+    version="1.0.0"
 )
 
-collection = chroma_client.get_or_create_collection(
-    name="documents",
-    embedding_function=ef
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# -----------------------------
-# 3. TEST ROUTE
-# -----------------------------
-@app.route("/")
+app.include_router(upload_router)
+
+if chat_router:
+    app.include_router(chat_router)
+
+
+@app.get("/")
 def home():
-    return "Backend is running "
+    return {
+        "message": "RAG Chatbot Backend is running successfully"
+    }
 
-# -----------------------------
-# 4. ADD DOCUMENT (ChromaDB)
-# -----------------------------
-@app.route("/add", methods=["POST"])
-def add_document():
-    data = request.json
-    text = data.get("text")
 
-    if not text:
-        return jsonify({"error": "No text provided"}), 400
-
-    doc_id = str(hash(text))
-
-    collection.add(
-        documents=[text],
-        ids=[doc_id]
-    )
-
-    return jsonify({"message": "Document added", "id": doc_id})
-
-# -----------------------------
-# 5. SEARCH DOCUMENT (RAG style)
-# -----------------------------
-@app.route("/search", methods=["POST"])
-def search():
-    data = request.json
-    query = data.get("query")
-
-    results = collection.query(
-        query_texts=[query],
-        n_results=1
-    )
-
-    return jsonify({
-        "query": query,
-        "result": results["documents"][0][0]
-    })
-
-# -----------------------------
-# 6. RUN SERVER
-# -----------------------------
-if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False, port=5000)
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok"
+    }
