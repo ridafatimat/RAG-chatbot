@@ -234,3 +234,6 @@ backend/**/__pycache__/
 frontend/node_modules/
 frontend/dist/
 node_modules/
+
+
+backend/chroma_db/
