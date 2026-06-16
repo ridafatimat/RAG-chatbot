@@ -1,8 +1,10 @@
+import UploadBox from "./components/UploadBox";
+import "./App.css";
+
 function App() {
   return (
-    <div>
-      <h1>RAG Chatbot</h1>
-      <p>Frontend is running successfully.</p>
+    <div className="app-shell">
+      <UploadBox />
     </div>
   );
 }

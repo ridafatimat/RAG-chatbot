@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routes.upload_routes import router as upload_router
 
 app = FastAPI(
     title="RAG Chatbot Backend",
@@ -15,11 +16,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(upload_router)
+
+
 @app.get("/")
 def home():
     return {
         "message": "RAG Chatbot Backend is running successfully"
     }
+
 
 @app.get("/health")
 def health_check():
