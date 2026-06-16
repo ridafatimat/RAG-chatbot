@@ -5,41 +5,42 @@
 html,
 body,
 #root {
+  width: 100%;
   min-height: 100%;
   margin: 0;
 }
 
 body {
   font-family: Inter, Arial, sans-serif;
-  background: #f3f1ea;
+  background: #000000;
 }
 
 .app-shell {
+  width: 100vw;
   min-height: 100vh;
-  background: #f3f1ea;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 28px;
+  background: #000000;
+  padding: 0;
+  margin: 0;
 }
 
 .rag-card {
-  width: min(960px, 100%);
-  background: #080808;
+  width: 100vw;
+  min-height: 100vh;
+  background: #050505;
   color: #f5f5f5;
-  border-radius: 18px;
+  border-radius: 0;
   overflow: hidden;
-  border: 1px solid #252525;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  border: none;
+  box-shadow: none;
 }
 
 .rag-header {
-  height: 92px;
-  padding: 22px 30px;
+  height: 96px;
+  padding: 22px 34px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #0c0c0c;
+  background: #0a0a0a;
   border-bottom: 1px solid #1e1e1e;
 }
 
@@ -50,10 +51,10 @@ body {
 }
 
 .brand-icon {
-  width: 46px;
-  height: 46px;
+  width: 54px;
+  height: 54px;
   background: #d63b32;
-  border-radius: 10px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   font-size: 22px;
@@ -63,79 +64,79 @@ body {
 
 .brand-block h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: 26px;
   letter-spacing: -0.4px;
 }
 
 .brand-block p {
-  margin: 4px 0 0;
-  color: #777;
-  font-size: 13px;
+  margin: 5px 0 0;
+  color: #7d7d7d;
+  font-size: 14px;
 }
 
 .chunks-status {
-  color: #5f5f5f;
+  color: #6b6b6b;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .rag-layout {
   display: grid;
-  grid-template-columns: 44% 56%;
-  min-height: 560px;
+  grid-template-columns: 43% 57%;
+  min-height: calc(100vh - 96px);
 }
 
 .document-panel {
-  border-right: 1px solid #1f1f1f;
-  padding: 24px 26px;
-  background: #070707;
+  border-right: 1px solid #1a1a1a;
+  padding: 28px 30px;
+  background: #050505;
 }
 
 .chat-panel {
-  padding: 24px 26px;
-  background: #090909;
+  padding: 28px 30px;
+  background: #050505;
   display: flex;
   flex-direction: column;
 }
 
 .panel-label {
-  color: #686868;
-  letter-spacing: 2px;
-  font-size: 14px;
+  color: #6d6d6d;
+  letter-spacing: 3px;
+  font-size: 15px;
   font-weight: 800;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .drop-zone {
-  height: 150px;
-  border: 1px dashed #343434;
-  border-radius: 10px;
-  background: #0b0b0b;
+  height: 175px;
+  border: 1px dashed #2e2e2e;
+  border-radius: 12px;
+  background: #070707;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 10px;
   cursor: pointer;
   transition: 0.2s ease;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .drop-zone:hover {
   border-color: #d63b32;
-  background: #111111;
+  background: #0d0d0d;
 }
 
 .cloud-icon {
   color: #d63b32;
-  font-size: 34px;
+  font-size: 36px;
   line-height: 1;
 }
 
 .drop-zone p {
   margin: 0;
-  color: #777;
-  font-size: 16px;
+  color: #7b7b7b;
+  font-size: 17px;
   text-align: center;
   max-width: 90%;
   word-break: break-word;
@@ -144,17 +145,18 @@ body {
 .process-btn {
   width: 100%;
   border: none;
-  border-radius: 10px;
-  padding: 13px 16px;
-  background: #d63b32;
+  border-radius: 12px;
+  padding: 15px 18px;
+  background: #de3f34;
   color: white;
+  font-size: 16px;
   font-weight: 800;
   cursor: pointer;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .process-btn:hover {
-  background: #e3483e;
+  background: #eb493e;
 }
 
 .process-btn:disabled {
@@ -163,27 +165,27 @@ body {
 }
 
 .small-status {
-  background: #121212;
-  border: 1px solid #242424;
-  color: #cfcfcf;
-  border-radius: 10px;
-  padding: 12px;
-  font-size: 14px;
-  margin-bottom: 18px;
+  background: #111111;
+  border: 1px solid #202020;
+  color: #d5d5d5;
+  border-radius: 12px;
+  padding: 13px 14px;
+  font-size: 15px;
+  margin-bottom: 22px;
 }
 
 .retrieved-label {
-  margin-top: 18px;
-  margin-bottom: 12px;
+  margin-top: 12px;
+  margin-bottom: 14px;
 }
 
 .chunk-card {
-  background: #151515;
-  border: 1px solid #252525;
-  border-radius: 7px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-  border-left: 4px solid #303030;
+  background: #141414;
+  border: 1px solid #222222;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border-left: 4px solid #2d2d2d;
 }
 
 .chunk-card.active {
@@ -191,39 +193,40 @@ body {
 }
 
 .chunk-card span {
-  color: #a4a4a4;
-  font-size: 14px;
+  color: #c7c7c7;
+  font-size: 15px;
 }
 
 .chunk-card p {
-  margin: 4px 0 0;
-  color: #696969;
-  font-size: 14px;
+  margin: 6px 0 0;
+  color: #7a7a7a;
+  font-size: 15px;
 }
 
 .chat-area {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: 390px;
+  gap: 18px;
+  min-height: 0;
+  padding-top: 4px;
 }
 
 .bot-message,
 .user-message,
 .hint-message {
   max-width: 78%;
-  padding: 14px 16px;
-  border-radius: 9px;
-  line-height: 1.45;
-  font-size: 15px;
+  padding: 16px 18px;
+  border-radius: 11px;
+  line-height: 1.5;
+  font-size: 16px;
 }
 
 .bot-message {
   align-self: flex-start;
-  background: #151515;
-  border: 1px solid #242424;
-  color: #d4d4d4;
+  background: #141414;
+  border: 1px solid #222222;
+  color: #e1e1e1;
 }
 
 .user-message {
@@ -235,7 +238,7 @@ body {
 
 .preview-message {
   max-width: 100%;
-  max-height: 220px;
+  max-height: 260px;
   overflow-y: auto;
   white-space: pre-wrap;
 }
@@ -244,47 +247,44 @@ body {
   align-self: flex-start;
   background: transparent;
   color: #555;
-  border: 1px dashed #252525;
+  border: 1px dashed #232323;
 }
 
 .chat-input-row {
   display: grid;
-  grid-template-columns: 1fr 56px;
-  gap: 12px;
+  grid-template-columns: 1fr 64px;
+  gap: 14px;
   margin-top: 20px;
 }
 
 .chat-input-row input {
   background: #111111;
-  border: 1px solid #2a2a2a;
+  border: 1px solid #242424;
   color: #777;
-  border-radius: 9px;
-  padding: 14px 16px;
+  border-radius: 11px;
+  padding: 16px 18px;
   outline: none;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .chat-input-row button {
   background: #d63b32;
   border: none;
-  border-radius: 9px;
+  border-radius: 11px;
   color: white;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 900;
 }
 
-@media (max-width: 820px) {
-  .app-shell {
-    padding: 16px;
-  }
-
+@media (max-width: 900px) {
   .rag-layout {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
 
   .document-panel {
     border-right: none;
-    border-bottom: 1px solid #1f1f1f;
+    border-bottom: 1px solid #1a1a1a;
   }
 
   .rag-header {
