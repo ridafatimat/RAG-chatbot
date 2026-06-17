@@ -6,6 +6,6 @@ def chunk_text(text, chunk_size=500, overlap=100):
         end = start + chunk_size
         chunk = text[start:end]
         chunks.append(chunk)
-        start = end - overlap  # overlap helps context continuity
+        start = end - overlap  
 
     return chunks

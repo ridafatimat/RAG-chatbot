@@ -17,7 +17,7 @@ from services.mongo_service import (
     get_user_by_email,
 )
 
-# 🔥 RAG IMPORTS (MEMBER 2 ADDITION)
+#  RAG IMPORTS (MEMBER 2 ADDITION)
 from services.chunk_service import chunk_text
 from services.chroma_service import store_chunks
 
@@ -88,7 +88,7 @@ async def upload_document(
             )
 
         # ================================
-        # 🔥 RAG PIPELINE STARTS HERE
+        # RAG PIPELINE STARTS HERE
         # ================================
 
         # Step 1: Chunk text

@@ -5,23 +5,45 @@ client = chromadb.PersistentClient(path="./chroma_db")
 
 collection = client.get_or_create_collection(name="documents")
 
-def store_chunks(doc_id, chunks):
+
+# -----------------------------
+# STORE CHUNKS
+# -----------------------------
+def store_chunks(document_id, chunks):
     for i, chunk in enumerate(chunks):
         embedding = get_embedding(chunk)
 
         collection.add(
-            ids=[f"{doc_id}_{i}"],
+            ids=[f"{document_id}_{i}"],
             embeddings=[embedding],
             documents=[chunk],
-            metadatas=[{"doc_id": doc_id}]
+            metadatas=[{
+                "document_id": document_id   
+            }]
         )
 
-def search_chunks(query, top_k=3):
-    query_embedding = get_embedding(query)
 
+# -----------------------------
+# SEARCH CHUNKS (FILTERED RAG)
+# -----------------------------
+def search_chunks(question, document_id):
     results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k
+        query_texts=[question],
+        n_results=5,
+        where={"document_id": document_id}   
     )
 
+    # safety check (prevents crash if empty)
+    if not results or not results.get("documents"):
+        return []
+
     return results["documents"][0]
+def debug_document_chunks(document_id):
+    results = collection.get(
+        where={"document_id": document_id}
+    )
+
+    return {
+        "count": len(results["ids"]),
+        "ids": results["ids"][:5]
+    }
