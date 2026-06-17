@@ -1,5 +1,7 @@
 import os
 from datetime import datetime, timezone
+
+from bson import ObjectId
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -14,6 +16,7 @@ if not MONGO_URI:
 client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 
+users_collection = db["users"]
 documents_collection = db["documents"]
 
 
@@ -25,9 +28,11 @@ def save_document_metadata(
     text_preview: str,
     full_text_length: int,
     chunks_count: int = 0,
+    user_id: str = None,
 ):
     document = {
         "file_id": file_id,
+        "user_id": user_id,
         "file_name": file_name,
         "saved_file_name": saved_file_name,
         "file_type": file_type,
@@ -46,15 +51,52 @@ def save_document_metadata(
     return document
 
 
+def format_document(document):
+    document["_id"] = str(document["_id"])
+
+    if "upload_date" in document and document["upload_date"]:
+        document["upload_date"] = document["upload_date"].isoformat()
+
+    return document
+
+
 def get_all_documents():
     documents = []
 
     for document in documents_collection.find().sort("upload_date", -1):
-        document["_id"] = str(document["_id"])
-
-        if "upload_date" in document:
-            document["upload_date"] = document["upload_date"].isoformat()
-
-        documents.append(document)
+        documents.append(format_document(document))
 
     return documents
+
+
+def get_documents_by_user(user_id: str):
+    documents = []
+
+    for document in documents_collection.find({"user_id": user_id}).sort("upload_date", -1):
+        documents.append(format_document(document))
+
+    return documents
+
+
+def get_document_by_id(document_id: str):
+    try:
+        document = documents_collection.find_one({"_id": ObjectId(document_id)})
+    except Exception:
+        return None
+
+    if not document:
+        return None
+
+    return format_document(document)
+
+def get_user_by_email(email: str):
+    user = users_collection.find_one({"email": email})
+
+    if not user:
+        return None
+
+    return {
+        "_id": str(user["_id"]),
+        "name": user.get("name"),
+        "email": user.get("email"),
+    }
