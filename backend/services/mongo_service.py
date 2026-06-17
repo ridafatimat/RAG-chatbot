@@ -18,7 +18,8 @@ db = client[DATABASE_NAME]
 
 users_collection = db["users"]
 documents_collection = db["documents"]
-
+chat_sessions_collection = db["chat_sessions"]
+chat_messages_collection = db["chat_messages"]
 
 def save_document_metadata(
     file_id: str,
@@ -100,3 +101,62 @@ def get_user_by_email(email: str):
         "name": user.get("name"),
         "email": user.get("email"),
     }
+def get_or_create_chat_session(user_id, document_id, title):
+    # Step 1: check if session already exists
+    existing = chat_sessions_collection.find_one({
+        "user_id": user_id,
+        "document_id": document_id
+    })
+
+    if existing:
+        return str(existing["_id"])
+
+    # Step 2: create if not exists
+    session = {
+        "user_id": user_id,
+        "document_id": document_id,
+        "title": title,
+        "created_at": datetime.now(timezone.utc)
+    }
+
+    result = chat_sessions_collection.insert_one(session)
+    return str(result.inserted_id)
+    
+def get_user_chat_sessions(user_id):
+    sessions = chat_sessions_collection.find({"user_id": user_id}).sort("created_at", -1)
+
+    result = []
+
+    for s in sessions:
+        result.append({
+            "_id": str(s["_id"]),
+            "title": s["title"],
+            "document_id": s["document_id"],
+            "created_at": s["created_at"].isoformat()
+        })
+
+    return result
+def get_chat_messages(chat_id):
+    messages = chat_messages_collection.find({"chat_id": chat_id}).sort("timestamp", 1)
+
+    result = []
+
+    for m in messages:
+        result.append({
+            "_id": str(m["_id"]),
+            "chat_id": m["chat_id"],
+            "role": m["role"],
+            "message": m["message"],
+            "timestamp": m["timestamp"].isoformat()
+        })
+
+    return result
+def save_chat_message(chat_id, role, message):
+    msg = {
+        "chat_id": chat_id,
+        "role": role,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc)
+    }
+
+    chat_messages_collection.insert_one(msg)

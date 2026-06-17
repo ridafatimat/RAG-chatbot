@@ -17,6 +17,10 @@ from services.mongo_service import (
     get_user_by_email,
 )
 
+#  RAG IMPORTS (MEMBER 2 ADDITION)
+from services.chunk_service import chunk_text
+from services.chroma_service import store_chunks
+
 router = APIRouter()
 
 UPLOAD_FOLDER = "uploads"
@@ -28,9 +32,9 @@ async def upload_document(
     email: str = Form(...)
 ):
     """
-    Upload a supported document, save it locally,
-    find user by email, save metadata in MongoDB with user_id,
-    and return a text preview.
+    Upload a supported document, extract text,
+    chunk it, store embeddings in ChromaDB,
+    and save metadata in MongoDB.
     """
 
     if not file.filename:
@@ -39,6 +43,7 @@ async def upload_document(
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
+    # Get user from MongoDB
     user = get_user_by_email(email)
 
     if not user:
@@ -49,6 +54,7 @@ async def upload_document(
 
     user_id = user["_id"]
 
+    # Validate file type
     if not is_supported_file(file.filename):
         allowed_types = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(
@@ -66,11 +72,13 @@ async def upload_document(
     file_path = os.path.join(UPLOAD_FOLDER, saved_file_name)
 
     try:
+        # Save file locally
         content = await file.read()
 
         with open(file_path, "wb") as f:
             f.write(content)
 
+        # Extract text from PDF/document
         extracted_text = extract_text_from_document(file_path, file.filename)
 
         if not extracted_text:
@@ -79,6 +87,19 @@ async def upload_document(
                 detail="Could not extract readable text from this document"
             )
 
+        # ================================
+        # RAG PIPELINE STARTS HERE
+        # ================================
+
+        # Step 1: Chunk text
+        chunks = chunk_text(extracted_text)
+
+        # Step 2: Store embeddings in ChromaDB
+        store_chunks(file_id, chunks)
+
+        # ================================
+        # Save metadata in MongoDB
+        # ================================
         document_metadata = save_document_metadata(
             file_id=file_id,
             user_id=user_id,
@@ -87,15 +108,15 @@ async def upload_document(
             file_type=file_extension,
             text_preview=extracted_text[:500],
             full_text_length=len(extracted_text),
-            chunks_count=3,
+            chunks_count=len(chunks),
         )
 
         return {
-            "message": "Document uploaded, processed, and saved successfully",
+            "message": "Document uploaded, processed, and stored in RAG system successfully",
             "document": document_metadata,
             "text_preview": extracted_text[:500],
             "full_text_length": len(extracted_text),
-            "extracted_text": extracted_text,
+            "chunks_count": len(chunks),
         }
 
     except HTTPException:
@@ -110,10 +131,8 @@ async def upload_document(
 
 @router.get("/documents")
 def get_documents():
-    documents = get_all_documents()
-
     return {
-        "documents": documents
+        "documents": get_all_documents()
     }
 
 
@@ -131,8 +150,6 @@ def get_single_document(document_id: str):
 
 @router.get("/documents/user/{user_id}")
 def get_user_documents(user_id: str):
-    documents = get_documents_by_user(user_id)
-
     return {
-        "documents": documents
+        "documents": get_documents_by_user(user_id)
     }
