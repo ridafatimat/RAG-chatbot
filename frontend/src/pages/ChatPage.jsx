@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -16,6 +16,7 @@ const COLORS = {
 function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     if (!chatId) return;
@@ -28,6 +29,12 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
 
     load();
   }, [chatId]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -109,6 +116,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
 
       <section style={{ display: "flex", flexDirection: "column", padding: "20px", gap: "10px" }}>
         <div
+          ref={scrollRef}
           style={{
             width: "100%",
             height: "60vh",
