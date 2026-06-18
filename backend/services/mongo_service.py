@@ -101,27 +101,29 @@ def get_user_by_email(email: str):
         "name": user.get("name"),
         "email": user.get("email"),
     }
-def get_or_create_chat_session(user_id, document_id, title):
-    # Step 1: check if session already exists
+def get_or_create_chat_session(user_id, document_id, title=None):
+
     existing = chat_sessions_collection.find_one({
         "user_id": user_id,
         "document_id": document_id
     })
 
     if existing:
-        return str(existing["_id"])
+        existing["_id"] = str(existing["_id"])
+        return existing
 
-    # Step 2: create if not exists
     session = {
         "user_id": user_id,
         "document_id": document_id,
-        "title": title,
+        "title": title or "New Chat",
         "created_at": datetime.now(timezone.utc)
     }
 
     result = chat_sessions_collection.insert_one(session)
-    return str(result.inserted_id)
-    
+    session["_id"] = str(result.inserted_id)
+
+    return session
+
 def get_user_chat_sessions(user_id):
     sessions = chat_sessions_collection.find({"user_id": user_id}).sort("created_at", -1)
 
@@ -137,23 +139,27 @@ def get_user_chat_sessions(user_id):
 
     return result
 def get_chat_messages(chat_id):
-    messages = chat_messages_collection.find({"chat_id": chat_id}).sort("timestamp", 1)
+
+    messages = chat_messages_collection.find(
+        {"chat_id": str(chat_id)}
+    ).sort("timestamp", 1)
 
     result = []
 
     for m in messages:
         result.append({
-            "_id": str(m["_id"]),
-            "chat_id": m["chat_id"],
-            "role": m["role"],
-            "message": m["message"],
-            "timestamp": m["timestamp"].isoformat()
+            "role": m.get("role"),
+            "content": m.get("message"),
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None
         })
 
     return result
+
+
 def save_chat_message(chat_id, role, message):
+
     msg = {
-        "chat_id": chat_id,
+        "chat_id": str(chat_id),
         "role": role,
         "message": message,
         "timestamp": datetime.now(timezone.utc)

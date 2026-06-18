@@ -1,21 +1,32 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
-  const [textPreview, setTextPreview] = useState("");
   const [loading, setLoading] = useState(false);
   const [documentName, setDocumentName] = useState("");
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
+  const [uploadedDoc, setUploadedDoc] = useState(null);
+  const [chatId, setChatId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, sending]);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
-
     setFile(selectedFile);
     setDocumentName(selectedFile ? selectedFile.name : "");
     setMessage("");
-    setTextPreview("");
   };
 
   const handleUpload = async () => {
@@ -23,7 +34,6 @@ function UploadBox({ user }) {
       setMessage("Please select a document first.");
       return;
     }
-
     if (!user?.email) {
       setMessage("Please login first.");
       return;
@@ -36,7 +46,6 @@ function UploadBox({ user }) {
     try {
       setLoading(true);
       setMessage("");
-      setTextPreview("");
 
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
@@ -51,13 +60,52 @@ function UploadBox({ user }) {
       }
 
       setMessage(data.message);
-      setTextPreview(data.text_preview);
+
+      if (data.document) {
+        setUploadedDoc(data.document);
+        setMessages([]);
+
+        const sessionRes = await fetch(
+          `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${data.document.file_id}`
+        );
+        const sessionData = await sessionRes.json();
+        setChatId(sessionData.chat_id);
+      }
     } catch (error) {
-      setMessage(
-        "Could not connect to backend. Please make sure backend is running."
-      );
+      setMessage("Could not connect to backend. Please make sure backend is running.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || !uploadedDoc || !chatId) return;
+
+    const question = input;
+    setMessages((prev) => [...prev, { role: "user", message: question }]);
+    setInput("");
+    setSending(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          document_id: uploadedDoc.file_id,
+          user_id: user._id,
+          chat_id: chatId,
+        }),
+      });
+      const data = await res.json();
+      setMessages((prev) => [...prev, { role: "assistant", message: data.answer }]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", message: "Something went wrong reaching the server." },
+      ]);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -66,17 +114,14 @@ function UploadBox({ user }) {
       <header className="rag-header">
         <div className="brand-block">
           <div className="brand-icon">▣</div>
-
           <div>
             <h1>RAG Assistant</h1>
-            <p>
-              {textPreview ? "Document processed" : "Upload a document to begin"}
-            </p>
+            <p>{uploadedDoc ? "Document processed" : "Upload a document to begin"}</p>
           </div>
         </div>
 
         <div className="chunks-status">
-          {textPreview ? "3 chunks active" : "0 chunks active"}
+          {uploadedDoc ? `${uploadedDoc.chunks_count ?? 0} chunks active` : "0 chunks active"}
         </div>
       </header>
 
@@ -91,88 +136,56 @@ function UploadBox({ user }) {
               onChange={handleFileChange}
               hidden
             />
-
             <div className="cloud-icon">☁</div>
-
             <p>{documentName ? documentName : "Drop file here"}</p>
-
             <span className="file-types">
-              {textPreview
-                ? `${file?.name
-                    ?.split(".")
-                    .pop()
-                    ?.toUpperCase()} document processed successfully`
+              {uploadedDoc
+                ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
                 : "PDF, TXT, DOCX, PPTX, CSV, XLSX supported"}
             </span>
           </label>
 
-          <button
-            className="process-btn"
-            onClick={handleUpload}
-            disabled={loading}
-          >
+          <button className="process-btn" onClick={handleUpload} disabled={loading}>
             {loading ? "Processing..." : "Process Document"}
           </button>
 
           {message && <div className="small-status">{message}</div>}
-
-          <div className="panel-label retrieved-label">RETRIEVED CHUNKS</div>
-
-          <div className={`chunk-card ${textPreview ? "active" : ""}`}>
-            <span>Chunk 1 —</span>
-            <p>{textPreview ? "Introduction..." : "Waiting..."}</p>
-          </div>
-
-          <div className={`chunk-card ${textPreview ? "active" : ""}`}>
-            <span>Chunk 2 —</span>
-            <p>{textPreview ? "Main content..." : "Waiting..."}</p>
-          </div>
-
-          <div className={`chunk-card ${textPreview ? "active" : ""}`}>
-            <span>Chunk 3 —</span>
-            <p>{textPreview ? "Details..." : "Waiting..."}</p>
-          </div>
         </aside>
 
         <main className="chat-panel">
           <div className="panel-label">CHAT</div>
 
-          <div className="chat-area">
-            <div className="bot-message">
-              {textPreview
-                ? "Document loaded. Ask your question."
-                : "Upload a document first so we can extract text from it."}
-            </div>
-
-            {textPreview && (
-              <>
-                <div className="user-message">Show extracted preview</div>
-
-                <div className="bot-message preview-message">
-                  {textPreview}
-                </div>
-              </>
-            )}
-
-            {!textPreview && (
-              <div className="hint-message">
-                Your extracted document preview will appear here after upload.
+          <div className="chat-area" ref={scrollRef}>
+            {!uploadedDoc && (
+              <div className="bot-message">
+                Upload a document first so we can start chatting about it.
               </div>
             )}
+
+            {uploadedDoc && messages.length === 0 && (
+              <div className="bot-message">Document loaded. Ask your first question.</div>
+            )}
+
+            {uploadedDoc &&
+              messages.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "user-message" : "bot-message"}>
+                  {m.message}
+                </div>
+              ))}
+
+            {sending && <div className="bot-message">Thinking...</div>}
           </div>
 
           <div className="chat-input-row">
             <input
               type="text"
-              placeholder={
-                textPreview
-                  ? "Chat API will be connected here later..."
-                  : "Upload a document first..."
-              }
-              disabled
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={uploadedDoc ? "Ask something about this document..." : "Upload a document first..."}
+              disabled={!uploadedDoc}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             />
-
-            <button disabled>↑</button>
+            <button onClick={sendMessage} disabled={!uploadedDoc}>↑</button>
           </div>
         </main>
       </div>
