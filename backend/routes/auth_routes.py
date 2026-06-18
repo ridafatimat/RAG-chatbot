@@ -1,26 +1,45 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime, timezone
+from passlib.context import CryptContext
 
 from services.mongo_service import users_collection
 
 router = APIRouter()
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 class RegisterRequest(BaseModel):
     name: str
-    email: str
+    email: EmailStr
     password: str
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 @router.post("/register")
 def register_user(user: RegisterRequest):
-    existing_user = users_collection.find_one({"email": user.email})
+    email = user.email.lower().strip()
+
+    if len(user.password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters long."
+        )
+
+    existing_user = users_collection.find_one({"email": email})
 
     if existing_user:
         raise HTTPException(
@@ -29,9 +48,9 @@ def register_user(user: RegisterRequest):
         )
 
     new_user = {
-        "name": user.name,
-        "email": user.email,
-        "password": user.password,
+        "name": user.name.strip(),
+        "email": email,
+        "password_hash": hash_password(user.password),
         "created_at": datetime.now(timezone.utc),
     }
 
@@ -41,20 +60,33 @@ def register_user(user: RegisterRequest):
         "message": "Account created successfully",
         "user": {
             "_id": str(result.inserted_id),
-            "name": user.name,
-            "email": user.email,
+            "name": new_user["name"],
+            "email": new_user["email"],
         },
     }
 
 
 @router.post("/login")
 def login_user(user: LoginRequest):
-    existing_user = users_collection.find_one({
-        "email": user.email,
-        "password": user.password,
-    })
+    email = user.email.lower().strip()
+
+    existing_user = users_collection.find_one({"email": email})
 
     if not existing_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password."
+        )
+
+    stored_password_hash = existing_user.get("password_hash")
+
+    if not stored_password_hash:
+        raise HTTPException(
+            status_code=401,
+            detail="This account uses an old password format. Please create a new account."
+        )
+
+    if not verify_password(user.password, stored_password_hash):
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password."

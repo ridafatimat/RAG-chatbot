@@ -26,8 +26,6 @@ def store_chunks(document_id, chunks):
 # -----------------------------
 # SEARCH CHUNKS (FILTERED RAG)
 # -----------------------------
-# NOTE: param order swapped to match how chat_routes.py calls this:
-# search_chunks(document_id, question)
 def search_chunks(document_id, question):
     results = collection.query(
         query_texts=[question],

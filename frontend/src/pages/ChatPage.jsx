@@ -21,14 +21,23 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   useEffect(() => {
     if (!chatId) return;
 
-    const load = async () => {
-      const res = await fetch(`${API_BASE_URL}/chat/${chatId}`);
-      const data = await res.json();
-      setMessages(data.messages || []);
+    const loadChat = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/chat/${chatId}`);
+        const data = await res.json();
+        setMessages(data.messages || []);
+      } catch (error) {
+        setMessages([
+          {
+            role: "assistant",
+            message: "Could not load chat history.",
+          },
+        ]);
+      }
     };
 
-    load();
-  }, [chatId]);
+    loadChat();
+  }, [chatId, setMessages]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -37,33 +46,263 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   }, [messages, loading]);
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
 
-    const question = input;
+    const question = input.trim();
 
     setMessages((prev) => [...prev, { role: "user", message: question }]);
     setInput("");
     setLoading(true);
 
-    const res = await fetch(`${API_BASE_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        document_id: document.file_id,
-        user_id: user._id,
-        chat_id: chatId,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question,
+          document_id: document.file_id,
+          user_id: user._id,
+          chat_id: chatId,
+        }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    setMessages((prev) => [...prev, { role: "assistant", message: data.answer }]);
-    setLoading(false);
+      if (!res.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            message: data.detail || "Something went wrong.",
+          },
+        ]);
+        return;
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: data.answer,
+          answer_type: data.answer_type || "plain",
+          structured_answer: data.structured_answer || null,
+        },
+      ]);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: "Could not connect to backend.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderStructuredAnswer = (message) => {
+    const type = message.answer_type;
+    const data = message.structured_answer;
+
+    if (!data || type === "plain") {
+      return <span>{message.message}</span>;
+    }
+
+    if (type === "mcq" || type === "quiz") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {data.title && (
+            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
+          )}
+
+          {(data.questions || []).map((q, index) => (
+            <div
+              key={index}
+              style={{
+                background: "#1f1f1f",
+                border: `1px solid ${COLORS.border}`,
+                borderLeft: `4px solid ${COLORS.orange}`,
+                borderRadius: "12px",
+                padding: "14px",
+              }}
+            >
+              <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+                {index + 1}. {q.question}
+              </p>
+
+              <div style={{ display: "grid", gap: "7px" }}>
+                {(q.options || []).map((option, optionIndex) => (
+                  <div
+                    key={optionIndex}
+                    style={{
+                      background: "#151515",
+                      border: `1px solid ${COLORS.border}`,
+                      borderRadius: "8px",
+                      padding: "8px 10px",
+                    }}
+                  >
+                    {option}
+                  </div>
+                ))}
+              </div>
+
+              {q.answer && (
+                <p style={{ margin: "12px 0 0", color: COLORS.orange }}>
+                  <strong>Answer:</strong> {q.answer}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (type === "short_questions") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {data.title && (
+            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
+          )}
+
+          {(data.questions || []).map((q, index) => (
+            <div
+              key={index}
+              style={{
+                background: "#1f1f1f",
+                border: `1px solid ${COLORS.border}`,
+                borderLeft: `4px solid ${COLORS.orange}`,
+                borderRadius: "12px",
+                padding: "14px",
+              }}
+            >
+              <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
+                {index + 1}. {q.question}
+              </p>
+
+              {q.answer && (
+                <p style={{ margin: 0, color: COLORS.textDim }}>
+                  <strong style={{ color: COLORS.orange }}>Answer:</strong>{" "}
+                  {q.answer}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (type === "true_false") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {data.title && (
+            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
+          )}
+
+          {(data.statements || []).map((item, index) => (
+            <div
+              key={index}
+              style={{
+                background: "#1f1f1f",
+                border: `1px solid ${COLORS.border}`,
+                borderLeft: `4px solid ${COLORS.orange}`,
+                borderRadius: "12px",
+                padding: "14px",
+              }}
+            >
+              <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
+                {index + 1}. {item.statement}
+              </p>
+
+              <span
+                style={{
+                  display: "inline-block",
+                  background: item.answer === "True" ? "#1f3d2b" : "#3d1f1f",
+                  color: COLORS.textLight,
+                  borderRadius: "999px",
+                  padding: "5px 12px",
+                  fontWeight: 700,
+                }}
+              >
+                {item.answer}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (type === "past_paper") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {data.title && (
+            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
+          )}
+
+          {(data.sections || []).map((section, sectionIndex) => (
+            <div
+              key={sectionIndex}
+              style={{
+                background: "#1f1f1f",
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: "12px",
+                padding: "16px",
+              }}
+            >
+              <h4 style={{ margin: "0 0 12px", color: COLORS.orange }}>
+                {section.heading}
+              </h4>
+
+              {(section.questions || []).map((q, index) => (
+                <div
+                  key={index}
+                  style={{
+                    borderTop:
+                      index === 0 ? "none" : `1px solid ${COLORS.border}`,
+                    paddingTop: index === 0 ? 0 : "12px",
+                    marginTop: index === 0 ? 0 : "12px",
+                  }}
+                >
+                  <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
+                    {index + 1}. {q.question}
+                  </p>
+
+                  {q.marks && (
+                    <p style={{ margin: 0, color: COLORS.textDim }}>
+                      Marks: {q.marks}
+                    </p>
+                  )}
+
+                  {q.answer && (
+                    <p style={{ margin: "8px 0 0", color: COLORS.textDim }}>
+                      <strong style={{ color: COLORS.orange }}>
+                        Suggested answer:
+                      </strong>{" "}
+                      {q.answer}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return <span>{message.message}</span>;
   };
 
   return (
-    <div className="dashboard-page" style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.textLight }}>
+    <div
+      className="dashboard-page"
+      style={{
+        background: COLORS.bg,
+        minHeight: "100vh",
+        color: COLORS.textLight,
+      }}
+    >
       <header
         className="dashboard-header"
         style={{
@@ -74,7 +313,14 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           borderBottom: `1px solid ${COLORS.border}`,
         }}
       >
-        <div className="brand-block" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div
+          className="brand-block"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+          }}
+        >
           <div
             className="brand-icon"
             style={{
@@ -91,11 +337,27 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           >
             ▣
           </div>
+
           <div>
-            <h1 style={{ color: COLORS.textLight, fontSize: "18px", margin: 0 }}>
-              {document?.file_name}
+            <h1
+              style={{
+                color: COLORS.textLight,
+                fontSize: "18px",
+                margin: 0,
+              }}
+            >
+              {document?.file_name || "Document Chat"}
             </h1>
-            <p style={{ color: COLORS.textDim, margin: 0, fontSize: "13px" }}>Chat Session</p>
+
+            <p
+              style={{
+                color: COLORS.textDim,
+                margin: 0,
+                fontSize: "13px",
+              }}
+            >
+              Chat Session
+            </p>
           </div>
         </div>
 
@@ -114,7 +376,14 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
         </button>
       </header>
 
-      <section style={{ display: "flex", flexDirection: "column", padding: "20px", gap: "10px" }}>
+      <section
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          padding: "20px",
+          gap: "10px",
+        }}
+      >
         <div
           ref={scrollRef}
           style={{
@@ -130,7 +399,13 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           }}
         >
           {messages.length === 0 && !loading && (
-            <p style={{ color: COLORS.textDim, textAlign: "center", marginTop: "20px" }}>
+            <p
+              style={{
+                color: COLORS.textDim,
+                textAlign: "center",
+                marginTop: "20px",
+              }}
+            >
               Ask something about this document to get started.
             </p>
           )}
@@ -144,26 +419,35 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
                 margin: "8px 0",
               }}
             >
-              <span
+              <div
                 style={{
-                  maxWidth: "75%",
+                  maxWidth:
+                    m.answer_type && m.answer_type !== "plain" ? "90%" : "75%",
                   padding: "10px 14px",
                   borderRadius: "14px",
-                  background: m.role === "user" ? COLORS.orange : COLORS.assistantBubble,
+                  background:
+                    m.role === "user" ? COLORS.orange : COLORS.assistantBubble,
                   color: m.role === "user" ? "#1a1a1a" : COLORS.textLight,
                   fontWeight: m.role === "user" ? 600 : 400,
                   lineHeight: "1.4",
                   wordBreak: "break-word",
                   display: "inline-block",
+                  whiteSpace: "pre-wrap",
                 }}
               >
-                {m.message}
-              </span>
+                {m.role === "assistant" ? renderStructuredAnswer(m) : m.message}
+              </div>
             </div>
           ))}
 
           {loading && (
-            <div style={{ display: "flex", justifyContent: "flex-start", margin: "8px 0" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-start",
+                margin: "8px 0",
+              }}
+            >
               <span
                 style={{
                   padding: "10px 14px",
@@ -179,7 +463,13 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            marginTop: "4px",
+          }}
+        >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -193,10 +483,16 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
               color: COLORS.textLight,
               outline: "none",
             }}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                sendMessage();
+              }
+            }}
           />
+
           <button
             onClick={sendMessage}
+            disabled={loading}
             style={{
               background: COLORS.orange,
               color: "#1a1a1a",
@@ -204,14 +500,38 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
               borderRadius: "10px",
               padding: "12px 22px",
               fontWeight: 600,
-              cursor: "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.7 : 1,
             }}
-            onMouseDown={(e) => (e.currentTarget.style.background = COLORS.orangeDark)}
-            onMouseUp={(e) => (e.currentTarget.style.background = COLORS.orange)}
+            onMouseDown={(e) => {
+              if (!loading) {
+                e.currentTarget.style.background = COLORS.orangeDark;
+              }
+            }}
+            onMouseUp={(e) => {
+              if (!loading) {
+                e.currentTarget.style.background = COLORS.orange;
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = COLORS.orange;
+            }}
           >
             Send
           </button>
         </div>
+
+        <p
+          style={{
+            color: COLORS.textDim,
+            fontSize: "12px",
+            textAlign: "center",
+            margin: "6px 0 0",
+          }}
+        >
+          You can write your question in any language. RAG Assistant will answer
+          in English only.
+        </p>
       </section>
     </div>
   );

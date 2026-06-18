@@ -1,17 +1,23 @@
 import { useState } from "react";
 
 function RegisterPage({ onRegister, goToLogin }) {
-  const [name, setName] = useState("Rida");
-  const [email, setEmail] = useState("rida@test.com");
-  const [password, setPassword] = useState("123456");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
-      setMessage("Please fill all fields.");
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      setMessage("Please fill in all fields.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage("Password must be at least 6 characters long.");
       return;
     }
 
@@ -25,8 +31,8 @@ function RegisterPage({ onRegister, goToLogin }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          name,
-          email,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
           password,
         }),
       });
@@ -56,33 +62,39 @@ function RegisterPage({ onRegister, goToLogin }) {
 
         <input
           type="text"
-          placeholder="Name"
+          placeholder="Enter your name"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
 
         <input
           type="email"
-          placeholder="Email"
+          placeholder="Enter your email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder="Create a password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              handleRegister();
+            }
+          }}
         />
 
         <button onClick={handleRegister} disabled={loading}>
-          {loading ? "Creating..." : "Create Account"}
+          {loading ? "Creating account..." : "Create Account"}
         </button>
 
         {message && <p className="auth-message">{message}</p>}
 
         <p className="auth-link">
-          Already have an account? <span onClick={goToLogin}>Login</span>
+          Already have an account?{" "}
+          <span onClick={goToLogin}>Login</span>
         </p>
       </div>
     </div>

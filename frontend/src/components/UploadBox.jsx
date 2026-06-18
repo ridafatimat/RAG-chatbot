@@ -24,9 +24,13 @@ function UploadBox({ user }) {
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
+
     setFile(selectedFile);
     setDocumentName(selectedFile ? selectedFile.name : "");
     setMessage("");
+    setUploadedDoc(null);
+    setMessages([]);
+    setChatId(null);
   };
 
   const handleUpload = async () => {
@@ -34,6 +38,7 @@ function UploadBox({ user }) {
       setMessage("Please select a document first.");
       return;
     }
+
     if (!user?.email) {
       setMessage("Please login first.");
       return;
@@ -59,7 +64,7 @@ function UploadBox({ user }) {
         return;
       }
 
-      setMessage(data.message);
+      setMessage(data.message || "Document uploaded, processed, and stored in RAG system successfully.");
 
       if (data.document) {
         setUploadedDoc(data.document);
@@ -68,6 +73,7 @@ function UploadBox({ user }) {
         const sessionRes = await fetch(
           `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${data.document.file_id}`
         );
+
         const sessionData = await sessionRes.json();
         setChatId(sessionData.chat_id);
       }
@@ -79,9 +85,10 @@ function UploadBox({ user }) {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !uploadedDoc || !chatId) return;
+    if (!input.trim() || !uploadedDoc || !chatId || sending) return;
 
-    const question = input;
+    const question = input.trim();
+
     setMessages((prev) => [...prev, { role: "user", message: question }]);
     setInput("");
     setSending(true);
@@ -89,7 +96,9 @@ function UploadBox({ user }) {
     try {
       const res = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           question,
           document_id: uploadedDoc.file_id,
@@ -97,12 +106,34 @@ function UploadBox({ user }) {
           chat_id: chatId,
         }),
       });
+
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: "assistant", message: data.answer }]);
+
+      if (!res.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            message: data.detail || "Something went wrong.",
+          },
+        ]);
+        return;
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: data.answer || "No answer returned from the server.",
+        },
+      ]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", message: "Something went wrong reaching the server." },
+        {
+          role: "assistant",
+          message: "Something went wrong reaching the server.",
+        },
       ]);
     } finally {
       setSending(false);
@@ -114,6 +145,7 @@ function UploadBox({ user }) {
       <header className="rag-header">
         <div className="brand-block">
           <div className="brand-icon">▣</div>
+
           <div>
             <h1>RAG Assistant</h1>
             <p>{uploadedDoc ? "Document processed" : "Upload a document to begin"}</p>
@@ -121,7 +153,9 @@ function UploadBox({ user }) {
         </div>
 
         <div className="chunks-status">
-          {uploadedDoc ? `${uploadedDoc.chunks_count ?? 0} chunks active` : "0 chunks active"}
+          {uploadedDoc
+            ? `${uploadedDoc.chunks_count ?? 0} chunks active`
+            : "0 chunks active"}
         </div>
       </header>
 
@@ -136,8 +170,11 @@ function UploadBox({ user }) {
               onChange={handleFileChange}
               hidden
             />
+
             <div className="cloud-icon">☁</div>
+
             <p>{documentName ? documentName : "Drop file here"}</p>
+
             <span className="file-types">
               {uploadedDoc
                 ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
@@ -163,12 +200,17 @@ function UploadBox({ user }) {
             )}
 
             {uploadedDoc && messages.length === 0 && (
-              <div className="bot-message">Document loaded. Ask your first question.</div>
+              <div className="bot-message">
+                Document loaded. Ask your first question.
+              </div>
             )}
 
             {uploadedDoc &&
               messages.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "user-message" : "bot-message"}>
+                <div
+                  key={i}
+                  className={m.role === "user" ? "user-message" : "bot-message"}
+                >
                   {m.message}
                 </div>
               ))}
@@ -181,12 +223,35 @@ function UploadBox({ user }) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={uploadedDoc ? "Ask something about this document..." : "Upload a document first..."}
-              disabled={!uploadedDoc}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              placeholder={
+                uploadedDoc
+                  ? "Ask something about this document..."
+                  : "Upload a document first..."
+              }
+              disabled={!uploadedDoc || sending}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  sendMessage();
+                }
+              }}
             />
-            <button onClick={sendMessage} disabled={!uploadedDoc}>↑</button>
+
+            <button onClick={sendMessage} disabled={!uploadedDoc || sending}>
+              ↑
+            </button>
           </div>
+
+          <p
+            style={{
+              color: "#8f8f8f",
+              fontSize: "12px",
+              textAlign: "center",
+              margin: "8px 0 0",
+            }}
+          >
+            You can write your question in any language. RAG Assistant will
+            answer in English only.
+          </p>
         </main>
       </div>
     </div>

@@ -1,15 +1,16 @@
 import { useState } from "react";
 
 function LoginPage({ onLogin, goToRegister }) {
-  const [email, setEmail] = useState("rida@test.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       setMessage("Please enter email and password.");
       return;
     }
@@ -24,7 +25,7 @@ function LoginPage({ onLogin, goToRegister }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
+          email: email.trim(),
           password,
         }),
       });
@@ -54,16 +55,17 @@ function LoginPage({ onLogin, goToRegister }) {
 
         <input
           type="email"
-          placeholder="Email"
+          placeholder="Enter your email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder="Enter your password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && handleLogin()}
         />
 
         <button onClick={handleLogin} disabled={loading}>
