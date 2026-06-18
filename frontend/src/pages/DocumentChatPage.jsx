@@ -27,13 +27,44 @@ function DocumentChatPage({
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
 
+  const getToken = () => localStorage.getItem("rag_token");
+
   useEffect(() => {
     if (!chatId) return;
 
     const loadChat = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/chat/${chatId}`);
+        const token = getToken();
+
+        if (!token) {
+          setMessages([
+            {
+              role: "assistant",
+              message: "Please login again. Your session is missing.",
+            },
+          ]);
+          return;
+        }
+
+        const res = await fetch(`${API_BASE_URL}/chat/${chatId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
         const data = await res.json();
+
+        if (!res.ok) {
+          setMessages([
+            {
+              role: "assistant",
+              message: data.detail || "Could not load chat history.",
+            },
+          ]);
+          return;
+        }
+
         setMessages(data.messages || []);
       } catch (error) {
         setMessages([
@@ -57,6 +88,30 @@ function DocumentChatPage({
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
+    const token = getToken();
+
+    if (!token) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: "Please login again. Your session is missing.",
+        },
+      ]);
+      return;
+    }
+
+    if (!document?.file_id) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: "No document selected.",
+        },
+      ]);
+      return;
+    }
+
     const question = input.trim();
 
     setMessages((prev) => [...prev, { role: "user", message: question }]);
@@ -68,11 +123,11 @@ function DocumentChatPage({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           question,
           document_id: document.file_id,
-          user_id: user._id,
           chat_id: chatId,
         }),
       });
@@ -568,9 +623,7 @@ function DocumentChatPage({
                 <div
                   style={{
                     maxWidth:
-                      m.answer_type && m.answer_type !== "plain"
-                        ? "90%"
-                        : "75%",
+                      m.answer_type && m.answer_type !== "plain" ? "90%" : "75%",
                     padding: "16px 18px",
                     borderRadius: "10px",
                     background:

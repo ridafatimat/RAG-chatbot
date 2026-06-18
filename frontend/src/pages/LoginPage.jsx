@@ -25,7 +25,7 @@ function LoginPage({ onLogin, goToRegister }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: email.trim(),
+          email: email.trim().toLowerCase(),
           password,
         }),
       });
@@ -36,6 +36,9 @@ function LoginPage({ onLogin, goToRegister }) {
         setMessage(data.detail || "Login failed.");
         return;
       }
+
+      localStorage.setItem("rag_token", data.access_token);
+      localStorage.setItem("rag_user", JSON.stringify(data.user));
 
       onLogin(data.user);
     } catch (error) {

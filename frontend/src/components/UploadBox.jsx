@@ -16,6 +16,8 @@ function UploadBox({ user }) {
 
   const scrollRef = useRef(null);
 
+  const getToken = () => localStorage.getItem("rag_token");
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -39,14 +41,15 @@ function UploadBox({ user }) {
       return;
     }
 
-    if (!user?.email) {
+    const token = getToken();
+
+    if (!token) {
       setMessage("Please login first.");
       return;
     }
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("email", user.email);
 
     try {
       setLoading(true);
@@ -54,6 +57,9 @@ function UploadBox({ user }) {
 
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 
@@ -64,21 +70,38 @@ function UploadBox({ user }) {
         return;
       }
 
-      setMessage(data.message || "Document uploaded, processed, and stored in RAG system successfully.");
+      setMessage(
+        data.message ||
+          "Document uploaded, processed, and stored in RAG system successfully."
+      );
 
       if (data.document) {
         setUploadedDoc(data.document);
         setMessages([]);
 
         const sessionRes = await fetch(
-          `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${data.document.file_id}`
+          `${API_BASE_URL}/chat/session?document_id=${data.document.file_id}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         const sessionData = await sessionRes.json();
+
+        if (!sessionRes.ok) {
+          setMessage(sessionData.detail || "Could not create chat session.");
+          return;
+        }
+
         setChatId(sessionData.chat_id);
       }
     } catch (error) {
-      setMessage("Could not connect to backend. Please make sure backend is running.");
+      setMessage(
+        "Could not connect to backend. Please make sure backend is running."
+      );
     } finally {
       setLoading(false);
     }
@@ -86,6 +109,19 @@ function UploadBox({ user }) {
 
   const sendMessage = async () => {
     if (!input.trim() || !uploadedDoc || !chatId || sending) return;
+
+    const token = getToken();
+
+    if (!token) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: "Please login again. Your session is missing.",
+        },
+      ]);
+      return;
+    }
 
     const question = input.trim();
 
@@ -98,11 +134,11 @@ function UploadBox({ user }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           question,
           document_id: uploadedDoc.file_id,
-          user_id: user._id,
           chat_id: chatId,
         }),
       });

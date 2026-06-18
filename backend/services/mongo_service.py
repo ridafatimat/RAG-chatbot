@@ -22,6 +22,61 @@ chat_sessions_collection = db["chat_sessions"]
 chat_messages_collection = db["chat_messages"]
 
 
+# -----------------------------
+# HELPERS
+# -----------------------------
+
+def format_document(document):
+    if not document:
+        return None
+
+    document["_id"] = str(document["_id"])
+
+    if "user_id" in document:
+        document["user_id"] = str(document["user_id"])
+
+    if "upload_date" in document and document["upload_date"]:
+        document["upload_date"] = document["upload_date"].isoformat()
+
+    return document
+
+
+def format_chat_session(session):
+    if not session:
+        return None
+
+    session["_id"] = str(session["_id"])
+
+    if "user_id" in session:
+        session["user_id"] = str(session["user_id"])
+
+    if "created_at" in session and session["created_at"]:
+        session["created_at"] = session["created_at"].isoformat()
+
+    return session
+
+
+# -----------------------------
+# USERS
+# -----------------------------
+
+def get_user_by_email(email: str):
+    user = users_collection.find_one({"email": email})
+
+    if not user:
+        return None
+
+    return {
+        "_id": str(user["_id"]),
+        "name": user.get("name"),
+        "email": user.get("email"),
+    }
+
+
+# -----------------------------
+# DOCUMENTS
+# -----------------------------
+
 def save_document_metadata(
     file_id: str,
     file_name: str,
@@ -34,7 +89,7 @@ def save_document_metadata(
 ):
     document = {
         "file_id": file_id,
-        "user_id": user_id,
+        "user_id": str(user_id) if user_id else None,
         "file_name": file_name,
         "saved_file_name": saved_file_name,
         "file_type": file_type,
@@ -53,15 +108,6 @@ def save_document_metadata(
     return document
 
 
-def format_document(document):
-    document["_id"] = str(document["_id"])
-
-    if "upload_date" in document and document["upload_date"]:
-        document["upload_date"] = document["upload_date"].isoformat()
-
-    return document
-
-
 def get_all_documents():
     documents = []
 
@@ -74,17 +120,22 @@ def get_all_documents():
 def get_documents_by_user(user_id: str):
     documents = []
 
-    for document in documents_collection.find({"user_id": user_id}).sort("upload_date", -1):
+    for document in documents_collection.find(
+        {"user_id": str(user_id)}
+    ).sort("upload_date", -1):
         documents.append(format_document(document))
 
     return documents
 
 
 def get_document_by_id(document_id: str):
-    try:
-        document = documents_collection.find_one({"_id": ObjectId(document_id)})
-    except Exception:
-        return None
+    document = documents_collection.find_one({"file_id": document_id})
+
+    if not document:
+        try:
+            document = documents_collection.find_one({"_id": ObjectId(document_id)})
+        except Exception:
+            return None
 
     if not document:
         return None
@@ -92,28 +143,32 @@ def get_document_by_id(document_id: str):
     return format_document(document)
 
 
-def get_user_by_email(email: str):
-    user = users_collection.find_one({"email": email})
+def get_document_by_file_id_for_user(file_id: str, user_id: str):
+    document = documents_collection.find_one({
+        "file_id": file_id,
+        "user_id": str(user_id),
+    })
 
-    if not user:
+    if not document:
         return None
 
-    return {
-        "_id": str(user["_id"]),
-        "name": user.get("name"),
-        "email": user.get("email"),
-    }
+    return format_document(document)
 
+
+# -----------------------------
+# CHAT SESSIONS
+# -----------------------------
 
 def get_or_create_chat_session(user_id, document_id, title=None):
+    user_id = str(user_id)
+
     existing = chat_sessions_collection.find_one({
         "user_id": user_id,
         "document_id": document_id,
     })
 
     if existing:
-        existing["_id"] = str(existing["_id"])
-        return existing
+        return format_chat_session(existing)
 
     session = {
         "user_id": user_id,
@@ -124,25 +179,49 @@ def get_or_create_chat_session(user_id, document_id, title=None):
 
     result = chat_sessions_collection.insert_one(session)
     session["_id"] = str(result.inserted_id)
+    session["created_at"] = session["created_at"].isoformat()
 
     return session
 
 
 def get_user_chat_sessions(user_id):
-    sessions = chat_sessions_collection.find({"user_id": user_id}).sort("created_at", -1)
+    sessions = chat_sessions_collection.find(
+        {"user_id": str(user_id)}
+    ).sort("created_at", -1)
 
     result = []
 
-    for s in sessions:
+    for session in sessions:
         result.append({
-            "_id": str(s["_id"]),
-            "title": s.get("title", "New Chat"),
-            "document_id": s.get("document_id"),
-            "created_at": s["created_at"].isoformat() if s.get("created_at") else None,
+            "_id": str(session["_id"]),
+            "title": session.get("title", "New Chat"),
+            "document_id": session.get("document_id"),
+            "created_at": session["created_at"].isoformat()
+            if session.get("created_at")
+            else None,
         })
 
     return result
 
+
+def get_chat_session_by_id_for_user(chat_id: str, user_id: str):
+    try:
+        chat = chat_sessions_collection.find_one({
+            "_id": ObjectId(chat_id),
+            "user_id": str(user_id),
+        })
+    except Exception:
+        return None
+
+    if not chat:
+        return None
+
+    return format_chat_session(chat)
+
+
+# -----------------------------
+# CHAT MESSAGES
+# -----------------------------
 
 def save_chat_message(
     chat_id,
@@ -170,13 +249,24 @@ def get_chat_messages(chat_id):
 
     result = []
 
-    for m in messages:
+    for message in messages:
         result.append({
-            "role": m.get("role"),
-            "message": m.get("content") or m.get("message"),
-            "answer_type": m.get("answer_type", "plain"),
-            "structured_answer": m.get("structured_answer"),
-            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
+            "role": message.get("role"),
+            "message": message.get("content") or message.get("message"),
+            "answer_type": message.get("answer_type", "plain"),
+            "structured_answer": message.get("structured_answer"),
+            "timestamp": message["timestamp"].isoformat()
+            if message.get("timestamp")
+            else None,
         })
 
     return result
+
+
+def get_chat_messages_for_user(chat_id: str, user_id: str):
+    chat = get_chat_session_by_id_for_user(chat_id, user_id)
+
+    if not chat:
+        return None
+
+    return get_chat_messages(chat_id)

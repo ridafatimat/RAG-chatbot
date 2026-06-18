@@ -1,17 +1,21 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional
 import os
 import re
 import json
+from typing import Optional
 
-from services.chroma_service import search_chunks
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from groq import Groq
+
+from services.auth_service import get_current_user
+from services.chroma_service import search_chunks
 
 from services.mongo_service import (
     save_chat_message,
     get_or_create_chat_session,
     get_chat_messages,
+    get_document_by_file_id_for_user,
+    get_chat_session_by_id_for_user,
 )
 
 router = APIRouter()
@@ -22,7 +26,6 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 class ChatRequest(BaseModel):
     question: str
     document_id: str
-    user_id: str
     chat_id: Optional[str] = None
 
 
@@ -42,11 +45,6 @@ def has_urdu_script(text: str) -> bool:
 
 
 def looks_non_english(question: str) -> bool:
-    """
-    Detects if user input is likely Urdu/Roman Urdu/Hinglish.
-    We still allow it, but we translate/search/answer in English.
-    """
-
     text = normalize_text(question)
 
     if has_urdu_script(question):
@@ -86,12 +84,6 @@ def looks_non_english(question: str) -> bool:
 
 
 def translate_question_to_english(question: str) -> str:
-    """
-    Converts any user question/request into clear English.
-    This helps Chroma search English document chunks even when the user writes
-    in Urdu, Roman Urdu, or Hinglish.
-    """
-
     try:
         prompt = f"""
 Convert the user's message into clear English.
@@ -131,18 +123,15 @@ User message:
 
 def is_question_like(text: str) -> bool:
     question_words = [
-        # English
         "what", "why", "how", "when", "where", "who", "which",
         "explain", "describe", "summarize", "summary", "tell me",
         "can you", "could you", "does", "do", "is", "are", "was", "were",
 
-        # Roman Urdu / Hinglish
         "kya", "kia", "kyun", "kyu", "kaise", "kesay", "kaisay",
         "kab", "kahan", "kidhar", "kon", "kaun", "kis",
         "batao", "btao", "samjhao", "smjhao", "summary do",
         "explain karo", "samjha do", "bata do",
 
-        # Urdu script
         "کیا", "کیوں", "کیسے", "کب", "کہاں", "کون", "کس", "بتاؤ", "سمجھاؤ",
     ]
 
@@ -153,11 +142,6 @@ def is_question_like(text: str) -> bool:
 
 
 def handle_small_talk(question: str) -> Optional[str]:
-    """
-    Handles greetings, thanks, goodbye, and acknowledgements.
-    IMPORTANT: We always reply in English now.
-    """
-
     text = normalize_text(question)
 
     if not text:
@@ -211,11 +195,6 @@ def handle_small_talk(question: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def detect_structured_intent(question: str) -> str:
-    """
-    Detects whether user wants generated structured content.
-    Use English-translated question for this function.
-    """
-
     text = normalize_text(question)
 
     true_false_keywords = [
@@ -294,7 +273,12 @@ Your answer in English:
 """
 
 
-def build_structured_prompt(context: str, original_question: str, english_question: str, answer_type: str) -> str:
+def build_structured_prompt(
+    context: str,
+    original_question: str,
+    english_question: str,
+    answer_type: str,
+) -> str:
     if answer_type in ["mcq", "quiz"]:
         schema_instruction = """
 Return ONLY valid JSON in this exact structure:
@@ -422,15 +406,41 @@ def parse_structured_answer(raw_answer: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/chat")
-def chat(request: ChatRequest):
+def chat(
+    request: ChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
     try:
         question = request.question.strip()
         document_id = request.document_id
-        user_id = request.user_id
         chat_id = request.chat_id
+        user_id = current_user["_id"]
 
         if not question:
             raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+        document = get_document_by_file_id_for_user(
+            file_id=document_id,
+            user_id=user_id,
+        )
+
+        if not document:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this document.",
+            )
+
+        if chat_id:
+            existing_chat = get_chat_session_by_id_for_user(
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+
+            if not existing_chat:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have access to this chat.",
+                )
 
         if not chat_id:
             chat_session = get_or_create_chat_session(
@@ -448,7 +458,6 @@ def chat(request: ChatRequest):
             structured_answer=None,
         )
 
-        # Small talk still returns English only
         small_talk_answer = handle_small_talk(question)
 
         if small_talk_answer:
@@ -471,10 +480,8 @@ def chat(request: ChatRequest):
                 "language": "English",
             }
 
-        # Convert any input language to English before retrieval/intent detection
         english_question = translate_question_to_english(question)
 
-        # Chroma search uses English query for better retrieval against English docs
         relevant_chunks = search_chunks(document_id, english_question)
 
         if not relevant_chunks:
@@ -565,34 +572,71 @@ def chat(request: ChatRequest):
         raise
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat processing failed: {str(e)}",
+        )
 
 
 @router.get("/chat/session")
-def get_chat_session(user_id: str, document_id: str):
-    chat = get_or_create_chat_session(user_id, document_id)
-    return {"chat_id": str(chat["_id"])}
+def get_chat_session(
+    document_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["_id"]
+
+    document = get_document_by_file_id_for_user(
+        file_id=document_id,
+        user_id=user_id,
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this document.",
+        )
+
+    chat = get_or_create_chat_session(
+        user_id=user_id,
+        document_id=document_id,
+    )
+
+    return {
+        "chat_id": str(chat["_id"])
+    }
 
 
 @router.get("/chat/{chat_id}")
-def get_chat(chat_id: str):
+def get_chat(
+    chat_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["_id"]
+
+    chat = get_chat_session_by_id_for_user(
+        chat_id=chat_id,
+        user_id=user_id,
+    )
+
+    if not chat:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this chat.",
+        )
+
     messages = get_chat_messages(chat_id)
 
     formatted = [
         {
-            "role": m.get("role"),
-            "message": m.get("message"),
-            "answer_type": m.get("answer_type", "plain"),
-            "structured_answer": m.get("structured_answer"),
+            "role": message.get("role"),
+            "message": message.get("message"),
+            "answer_type": message.get("answer_type", "plain"),
+            "structured_answer": message.get("structured_answer"),
         }
-        for m in messages
+        for message in messages
     ]
 
-    return {"chat_id": chat_id, "messages": formatted}
-
-
-@router.get("/debug/{document_id}")
-def debug(document_id: str):
-    from services.chroma_service import debug_document_chunks
-
-    return debug_document_chunks(document_id)
+    return {
+        "chat_id": chat_id,
+        "messages": formatted,
+    }

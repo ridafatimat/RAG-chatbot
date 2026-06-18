@@ -1,13 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timezone
-from passlib.context import CryptContext
 
 from services.mongo_service import users_collection
+from services.auth_service import (
+    hash_password,
+    verify_password,
+    create_access_token,
+)
 
 router = APIRouter()
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class RegisterRequest(BaseModel):
@@ -21,14 +23,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
 @router.post("/register")
 def register_user(user: RegisterRequest):
     email = user.email.lower().strip()
@@ -36,7 +30,7 @@ def register_user(user: RegisterRequest):
     if len(user.password) < 6:
         raise HTTPException(
             status_code=400,
-            detail="Password must be at least 6 characters long."
+            detail="Password must be at least 6 characters long.",
         )
 
     existing_user = users_collection.find_one({"email": email})
@@ -44,7 +38,7 @@ def register_user(user: RegisterRequest):
     if existing_user:
         raise HTTPException(
             status_code=400,
-            detail="User already exists. Please login."
+            detail="User already exists. Please login.",
         )
 
     new_user = {
@@ -56,8 +50,17 @@ def register_user(user: RegisterRequest):
 
     result = users_collection.insert_one(new_user)
 
+    access_token = create_access_token(
+        data={
+            "sub": str(result.inserted_id),
+            "email": new_user["email"],
+        }
+    )
+
     return {
         "message": "Account created successfully",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "_id": str(result.inserted_id),
             "name": new_user["name"],
@@ -75,7 +78,7 @@ def login_user(user: LoginRequest):
     if not existing_user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password."
+            detail="Invalid email or password.",
         )
 
     stored_password_hash = existing_user.get("password_hash")
@@ -83,20 +86,29 @@ def login_user(user: LoginRequest):
     if not stored_password_hash:
         raise HTTPException(
             status_code=401,
-            detail="This account uses an old password format. Please create a new account."
+            detail="This account uses an old password format. Please create a new account.",
         )
 
     if not verify_password(user.password, stored_password_hash):
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password."
+            detail="Invalid email or password.",
         )
+
+    access_token = create_access_token(
+        data={
+            "sub": str(existing_user["_id"]),
+            "email": existing_user["email"],
+        }
+    )
 
     return {
         "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "_id": str(existing_user["_id"]),
-            "name": existing_user["name"],
+            "name": existing_user.get("name", ""),
             "email": existing_user["email"],
         },
     }

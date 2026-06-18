@@ -1,7 +1,6 @@
 import { useState } from "react";
 
-function RegisterPage({ onRegister, goToLogin }) {
-  const [name, setName] = useState("");
+function LoginPage({ onLogin, goToRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -10,14 +9,9 @@ function RegisterPage({ onRegister, goToLogin }) {
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
-  const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      setMessage("Please fill in all fields.");
-      return;
-    }
-
-    if (password.length < 6) {
-      setMessage("Password must be at least 6 characters long.");
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      setMessage("Please enter email and password.");
       return;
     }
 
@@ -25,13 +19,12 @@ function RegisterPage({ onRegister, goToLogin }) {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(`${API_BASE_URL}/register`, {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          name: name.trim(),
           email: email.trim().toLowerCase(),
           password,
         }),
@@ -40,11 +33,14 @@ function RegisterPage({ onRegister, goToLogin }) {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Registration failed.");
+        setMessage(data.detail || "Login failed.");
         return;
       }
 
-      onRegister(data.user);
+      localStorage.setItem("rag_token", data.access_token);
+      localStorage.setItem("rag_user", JSON.stringify(data.user));
+
+      onLogin(data.user);
     } catch (error) {
       setMessage("Could not connect to backend.");
     } finally {
@@ -57,15 +53,8 @@ function RegisterPage({ onRegister, goToLogin }) {
       <div className="auth-card">
         <div className="brand-icon auth-icon">▣</div>
 
-        <h1>Create Account</h1>
-        <p>Create an account to save your own document history.</p>
-
-        <input
-          type="text"
-          placeholder="Enter your name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
+        <h1>RAG Assistant</h1>
+        <p>Login to access your personal document workspace.</p>
 
         <input
           type="email"
@@ -76,29 +65,25 @@ function RegisterPage({ onRegister, goToLogin }) {
 
         <input
           type="password"
-          placeholder="Create a password"
+          placeholder="Enter your password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              handleRegister();
-            }
-          }}
+          onKeyDown={(event) => event.key === "Enter" && handleLogin()}
         />
 
-        <button onClick={handleRegister} disabled={loading}>
-          {loading ? "Creating account..." : "Create Account"}
+        <button onClick={handleLogin} disabled={loading}>
+          {loading ? "Logging in..." : "Login"}
         </button>
 
         {message && <p className="auth-message">{message}</p>}
 
         <p className="auth-link">
-          Already have an account?{" "}
-          <span onClick={goToLogin}>Login</span>
+          Don't have an account?{" "}
+          <span onClick={goToRegister}>Create account</span>
         </p>
       </div>
     </div>
   );
 }
 
-export default RegisterPage;
+export default LoginPage;

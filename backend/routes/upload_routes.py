@@ -1,6 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 import os
 import uuid
+import re
+
+from services.auth_service import get_current_user
 
 from services.document_service import (
     extract_text_from_document,
@@ -11,55 +14,49 @@ from services.document_service import (
 
 from services.mongo_service import (
     save_document_metadata,
-    get_all_documents,
     get_documents_by_user,
-    get_document_by_id,
-    get_user_by_email,
+    get_document_by_file_id_for_user,
 )
 
-#  RAG IMPORTS (MEMBER 2 ADDITION)
 from services.chunk_service import chunk_text
 from services.chroma_service import store_chunks
 
 router = APIRouter()
 
 UPLOAD_FOLDER = "uploads"
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
+
+def sanitize_filename(filename: str) -> str:
+    filename = os.path.basename(filename)
+    filename = filename.replace(" ", "_")
+    filename = re.sub(r"[^a-zA-Z0-9_.-]", "", filename)
+    return filename
 
 
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    email: str = Form(...)
+    current_user: dict = Depends(get_current_user),
 ):
-    """
-    Upload a supported document, extract text,
-    chunk it, store embeddings in ChromaDB,
-    and save metadata in MongoDB.
-    """
-
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected")
 
-    if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
+    user_id = current_user["_id"]
 
-    # Get user from MongoDB
-    user = get_user_by_email(email)
-
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found. Please register first."
-        )
-
-    user_id = user["_id"]
-
-    # Validate file type
     if not is_supported_file(file.filename):
         allowed_types = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Allowed file types are: {allowed_types}"
+            detail=f"Unsupported file type. Allowed file types are: {allowed_types}",
+        )
+
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="File is too large. Maximum allowed size is 10MB.",
         )
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -67,39 +64,26 @@ async def upload_document(
     file_id = str(uuid.uuid4())
     file_extension = get_file_extension(file.filename)
 
-    safe_file_name = file.filename.replace(" ", "_")
+    safe_file_name = sanitize_filename(file.filename)
     saved_file_name = f"{file_id}_{safe_file_name}"
     file_path = os.path.join(UPLOAD_FOLDER, saved_file_name)
 
     try:
-        # Save file locally
-        content = await file.read()
-
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Extract text from PDF/document
         extracted_text = extract_text_from_document(file_path, file.filename)
 
         if not extracted_text:
             raise HTTPException(
                 status_code=400,
-                detail="Could not extract readable text from this document"
+                detail="Could not extract readable text from this document",
             )
 
-        # ================================
-        # RAG PIPELINE STARTS HERE
-        # ================================
-
-        # Step 1: Chunk text
         chunks = chunk_text(extracted_text)
 
-        # Step 2: Store embeddings in ChromaDB
         store_chunks(file_id, chunks)
 
-        # ================================
-        # Save metadata in MongoDB
-        # ================================
         document_metadata = save_document_metadata(
             file_id=file_id,
             user_id=user_id,
@@ -125,23 +109,32 @@ async def upload_document(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Something went wrong while processing the document: {str(e)}"
+            detail=f"Something went wrong while processing the document: {str(e)}",
         )
 
 
 @router.get("/documents")
-def get_documents():
+def get_documents(current_user: dict = Depends(get_current_user)):
     return {
-        "documents": get_all_documents()
+        "documents": get_documents_by_user(current_user["_id"])
     }
 
 
 @router.get("/documents/detail/{document_id}")
-def get_single_document(document_id: str):
-    document = get_document_by_id(document_id)
+def get_single_document(
+    document_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    document = get_document_by_file_id_for_user(
+        file_id=document_id,
+        user_id=current_user["_id"],
+    )
 
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found or access denied.",
+        )
 
     return {
         "document": document
@@ -149,7 +142,16 @@ def get_single_document(document_id: str):
 
 
 @router.get("/documents/user/{user_id}")
-def get_user_documents(user_id: str):
+def get_user_documents(
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    if user_id != current_user["_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot access another user's documents.",
+        )
+
     return {
-        "documents": get_documents_by_user(user_id)
+        "documents": get_documents_by_user(current_user["_id"])
     }
