@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-function UploadBox({ user }) {
+function UploadBox({ user, openDocumentChat }) {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
   const [textPreview, setTextPreview] = useState("");
@@ -51,7 +51,9 @@ function UploadBox({ user }) {
       }
 
       setMessage(data.message);
-      setTextPreview(data.text_preview);
+      if (data.document) {
+        openDocumentChat?.(data.document);
+      }
     } catch (error) {
       setMessage(
         "Could not connect to backend. Please make sure backend is running."

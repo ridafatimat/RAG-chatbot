@@ -18,7 +18,10 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(`${API_BASE_URL}/documents/user/${user._id}`);
+      const response = await fetch(
+        `${API_BASE_URL}/documents/user/${user._id}`
+      );
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -34,9 +37,10 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
     }
   };
 
+  // 🔥 FIX 1: reload when user changes
   useEffect(() => {
     fetchDocuments();
-  }, []);
+  }, [user?._id]);
 
   return (
     <div className="history-page">

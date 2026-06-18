@@ -1,62 +1,71 @@
 import { useEffect, useState } from "react";
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import UploadPage from "./pages/UploadPage";
 import HistoryPage from "./pages/HistoryPage";
-import DocumentChatPage from "./pages/DocumentChatPage";
+import ChatPage from "./pages/ChatPage";
+
 import "./App.css";
 
 function App() {
   const [page, setPage] = useState("login");
   const [user, setUser] = useState(null);
-  const [selectedDocument, setSelectedDocument] = useState(null);
 
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [chatId, setChatId] = useState(null);
+  const [messages, setMessages] = useState([]);
+
+  // ---------------- LOGIN RESTORE ----------------
   useEffect(() => {
     const savedUser = localStorage.getItem("rag_user");
 
     if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
+      setUser(JSON.parse(savedUser));
       setPage("dashboard");
     }
   }, []);
 
+  // ---------------- OPEN CHAT ----------------
+  const openDocumentChat = async (doc) => {
+    setSelectedDocument(doc);
+    setMessages([]);
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/chat/session?user_id=${user._id}&document_id=${doc.file_id}`
+      );
+
+      const data = await res.json();
+      setChatId(data.chat_id);
+
+      setPage("chat");
+    } catch (err) {
+      console.error("Chat open error:", err);
+    }
+  };
+
+  // ---------------- LOGIN ----------------
   const handleLogin = (loggedInUser) => {
     localStorage.setItem("rag_user", JSON.stringify(loggedInUser));
     setUser(loggedInUser);
     setPage("dashboard");
   };
 
+  // ---------------- LOGOUT ----------------
   const handleLogout = () => {
     localStorage.removeItem("rag_user");
     setUser(null);
     setSelectedDocument(null);
+    setChatId(null);
+    setMessages([]);
     setPage("login");
   };
 
-  const openDocumentChat = (document) => {
-    setSelectedDocument(document);
-    setPage("document-chat");
-  };
-
+  // ---------------- ROUTES ----------------
   if (page === "login") {
-    return (
-      <LoginPage
-        onLogin={handleLogin}
-        goToRegister={() => setPage("register")}
-      />
-    );
+    return <LoginPage onLogin={handleLogin} goToRegister={() => setPage("register")} />;
   }
 
-  if (page === "register") {
-    return (
-      <RegisterPage
-        onRegister={handleLogin}
-        goToLogin={() => setPage("login")}
-      />
-    );
-  }
 
   if (page === "dashboard") {
     return (
@@ -75,6 +84,7 @@ function App() {
         user={user}
         goBack={() => setPage("dashboard")}
         goToHistory={() => setPage("history")}
+        openDocumentChat={openDocumentChat}
       />
     );
   }
@@ -89,12 +99,15 @@ function App() {
     );
   }
 
-  if (page === "document-chat") {
+  if (page === "chat") {
     return (
-      <DocumentChatPage
+      <ChatPage
+        user={user}
         document={selectedDocument}
+        chatId={chatId}
+        messages={messages}
+        setMessages={setMessages}
         goBack={() => setPage("history")}
-        goToDashboard={() => setPage("dashboard")}
       />
     );
   }

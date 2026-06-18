@@ -18,7 +18,7 @@ def store_chunks(document_id, chunks):
             embeddings=[embedding],
             documents=[chunk],
             metadatas=[{
-                "document_id": document_id   
+                "document_id": document_id
             }]
         )
 
@@ -26,18 +26,21 @@ def store_chunks(document_id, chunks):
 # -----------------------------
 # SEARCH CHUNKS (FILTERED RAG)
 # -----------------------------
-def search_chunks(question, document_id):
+# NOTE: param order swapped to match how chat_routes.py calls this:
+# search_chunks(document_id, question)
+def search_chunks(document_id, question):
     results = collection.query(
         query_texts=[question],
         n_results=5,
-        where={"document_id": document_id}   
+        where={"document_id": document_id}
     )
 
-    # safety check (prevents crash if empty)
     if not results or not results.get("documents"):
         return []
 
     return results["documents"][0]
+
+
 def debug_document_chunks(document_id):
     results = collection.get(
         where={"document_id": document_id}
