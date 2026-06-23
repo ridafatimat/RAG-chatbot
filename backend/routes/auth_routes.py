@@ -39,8 +39,12 @@ class VerifyOTPRequest(BaseModel):
     otp: str
 
 
+class ResendOTPRequest(BaseModel):
+    email: EmailStr
+
+
 # -------------------------
-# REGISTER (OTP FLOW)
+# REGISTER (SEND OTP)
 # -------------------------
 @router.post("/register")
 def register_user(user: RegisterRequest):
@@ -52,7 +56,7 @@ def register_user(user: RegisterRequest):
             detail="Password must be at least 6 characters long.",
         )
 
-    # check if already a real user
+    # already registered user check
     existing_user = users_collection.find_one({"email": email})
     if existing_user:
         raise HTTPException(
@@ -60,35 +64,63 @@ def register_user(user: RegisterRequest):
             detail="User already exists. Please login.",
         )
 
-    # check if OTP already pending
-    pending = email_verifications_collection.find_one({"email": email})
-    if pending:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP already sent. Please verify your email.",
-        )
-
-    # generate OTP
     otp = str(random.randint(100000, 999999))
-
-    # FIXED: proper timezone-aware expiry
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    # store TEMP data
-    email_verifications_collection.insert_one({
-        "name": user.name.strip(),
-        "email": email,
-        "password_hash": hash_password(user.password),
-        "otp": otp,
-        "expires_at": expires_at,
-    })
+    pending = email_verifications_collection.find_one({"email": email})
 
-    # send email
+    # IF already pending → update OTP (IMPORTANT FIX)
+    if pending:
+        email_verifications_collection.update_one(
+            {"email": email},
+            {"$set": {
+                "otp": otp,
+                "expires_at": expires_at
+            }}
+        )
+    else:
+        email_verifications_collection.insert_one({
+            "name": user.name.strip(),
+            "email": email,
+            "password_hash": hash_password(user.password),
+            "otp": otp,
+            "expires_at": expires_at,
+        })
+
     send_otp_email(email, otp)
 
-    return {
-        "message": "OTP sent to email. Please verify within 5 minutes."
-    }
+    return {"message": "OTP sent successfully"}
+
+
+# -------------------------
+# RESEND OTP (separate endpoint)
+# -------------------------
+@router.post("/resend-otp")
+def resend_otp(data: ResendOTPRequest):
+    email = data.email.lower().strip()
+
+    record = email_verifications_collection.find_one({"email": email})
+
+    if not record:
+        raise HTTPException(
+            status_code=400,
+            detail="No pending registration found."
+        )
+
+    otp = str(random.randint(100000, 999999))
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    email_verifications_collection.update_one(
+        {"email": email},
+        {"$set": {
+            "otp": otp,
+            "expires_at": expires_at
+        }}
+    )
+
+    send_otp_email(email, otp)
+
+    return {"message": "OTP resent successfully"}
 
 
 # -------------------------
@@ -106,7 +138,6 @@ def verify_email(data: VerifyOTPRequest):
 
     expires_at = record["expires_at"]
 
-    # FIXED: timezone-safe comparison
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
@@ -114,11 +145,9 @@ def verify_email(data: VerifyOTPRequest):
         email_verifications_collection.delete_one({"email": record["email"]})
         raise HTTPException(status_code=400, detail="OTP expired")
 
-    # otp check
     if data.otp != record["otp"]:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    # create actual user
     result = users_collection.insert_one({
         "name": record["name"],
         "email": record["email"],
@@ -126,10 +155,8 @@ def verify_email(data: VerifyOTPRequest):
         "created_at": datetime.now(timezone.utc),
     })
 
-    # delete temp record
     email_verifications_collection.delete_one({"email": record["email"]})
 
-    # generate token
     access_token = create_access_token(
         data={
             "sub": str(result.inserted_id),
@@ -164,15 +191,7 @@ def login_user(user: LoginRequest):
             detail="Invalid email or password.",
         )
 
-    stored_password_hash = existing_user.get("password_hash")
-
-    if not stored_password_hash:
-        raise HTTPException(
-            status_code=401,
-            detail="This account uses an old password format. Please create a new account.",
-        )
-
-    if not verify_password(user.password, stored_password_hash):
+    if not verify_password(user.password, existing_user["password_hash"]):
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password.",
