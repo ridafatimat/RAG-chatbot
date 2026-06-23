@@ -17,6 +17,7 @@ from services.auth_service import (
 
 from services.email_service import send_otp_email
 
+
 router = APIRouter()
 
 
@@ -43,6 +44,16 @@ class ResendOTPRequest(BaseModel):
     email: EmailStr
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyResetOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
+
 # -------------------------
 # REGISTER (SEND OTP)
 # -------------------------
@@ -56,7 +67,6 @@ def register_user(user: RegisterRequest):
             detail="Password must be at least 6 characters long.",
         )
 
-    # already registered user check
     existing_user = users_collection.find_one({"email": email})
     if existing_user:
         raise HTTPException(
@@ -69,7 +79,6 @@ def register_user(user: RegisterRequest):
 
     pending = email_verifications_collection.find_one({"email": email})
 
-    # IF already pending → update OTP (IMPORTANT FIX)
     if pending:
         email_verifications_collection.update_one(
             {"email": email},
@@ -85,6 +94,7 @@ def register_user(user: RegisterRequest):
             "password_hash": hash_password(user.password),
             "otp": otp,
             "expires_at": expires_at,
+            "purpose": "register"
         })
 
     send_otp_email(email, otp)
@@ -93,7 +103,7 @@ def register_user(user: RegisterRequest):
 
 
 # -------------------------
-# RESEND OTP (separate endpoint)
+# RESEND OTP
 # -------------------------
 @router.post("/resend-otp")
 def resend_otp(data: ResendOTPRequest):
@@ -104,7 +114,7 @@ def resend_otp(data: ResendOTPRequest):
     if not record:
         raise HTTPException(
             status_code=400,
-            detail="No pending registration found."
+            detail="No pending verification found."
         )
 
     otp = str(random.randint(100000, 999999))
@@ -124,7 +134,7 @@ def resend_otp(data: ResendOTPRequest):
 
 
 # -------------------------
-# VERIFY OTP
+# VERIFY EMAIL (REGISTER COMPLETE)
 # -------------------------
 @router.post("/verify-email")
 def verify_email(data: VerifyOTPRequest):
@@ -213,4 +223,86 @@ def login_user(user: LoginRequest):
             "name": existing_user.get("name", ""),
             "email": existing_user["email"],
         },
+    }
+
+
+# -------------------------
+# FORGOT PASSWORD (SEND OTP)
+# -------------------------
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordRequest):
+
+    email = data.email.lower().strip()
+
+    user = users_collection.find_one({"email": email})
+
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    otp = str(random.randint(100000, 999999))
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    existing = email_verifications_collection.find_one({"email": email})
+
+    if existing:
+        email_verifications_collection.update_one(
+            {"email": email},
+            {"$set": {
+                "otp": otp,
+                "expires_at": expires_at,
+                "purpose": "reset_password"
+            }}
+        )
+    else:
+        email_verifications_collection.insert_one({
+            "email": email,
+            "otp": otp,
+            "expires_at": expires_at,
+            "purpose": "reset_password"
+        })
+
+    send_otp_email(email, otp)
+
+    return {
+        "message": "Verification code sent to your email"
+    }
+
+
+# -------------------------
+# RESET PASSWORD (VERIFY OTP + UPDATE PASSWORD)
+# -------------------------
+@router.post("/verify-reset-password")
+def verify_reset_password(data: VerifyResetOTPRequest):
+
+    record = email_verifications_collection.find_one({
+        "email": data.email.lower().strip(),
+        "purpose": "reset_password"
+    })
+
+    if not record:
+        raise HTTPException(status_code=400, detail="No OTP found")
+
+    expires_at = record["expires_at"]
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if datetime.now(timezone.utc) > expires_at:
+        email_verifications_collection.delete_one({"email": record["email"]})
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    if data.otp != record["otp"]:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    hashed_password = hash_password(data.new_password)
+
+    users_collection.update_one(
+        {"email": record["email"]},
+        {"$set": {"password_hash": hashed_password}}
+    )
+
+    email_verifications_collection.delete_one({"email": record["email"]})
+
+    return {
+        "message": "Password reset successful"
     }
