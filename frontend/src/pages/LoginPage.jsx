@@ -303,7 +303,7 @@ function LoginPage({ onLogin }) {
               Login
             </button>
 
-            <p onClick={goToRegister} style={{ cursor: "pointer" }}>
+            <p onClick={goToRegister} style={{ cursor: "pointer", color: "orange", fontWeight: "bold" }}>
               Create Account
             </p>
 
