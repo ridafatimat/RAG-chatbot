@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes.chat_routes import router as chat_router
-from routes.upload_routes import router as upload_router
-from routes.auth_routes import router as auth_router
 
+from routes.auth_routes import router as auth_router
+from routes.upload_routes import router as upload_router
+
+# chat_routes optional (safe import)
 try:
     from routes.chat_routes import router as chat_router
 except ImportError:
@@ -24,14 +25,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -------------------
 # ROUTES
+# -------------------
 app.include_router(auth_router)
 app.include_router(upload_router)
-app.include_router(chat_router)
+
 if chat_router:
     app.include_router(chat_router)
 
 
+# -------------------
+# BASIC ENDPOINTS
+# -------------------
 @app.get("/")
 def home():
     return {"message": "RAG Chatbot Backend is running successfully"}

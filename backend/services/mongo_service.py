@@ -16,10 +16,18 @@ if not MONGO_URI:
 client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 
+# -----------------------------
+# COLLECTIONS (EXISTING)
+# -----------------------------
 users_collection = db["users"]
 documents_collection = db["documents"]
 chat_sessions_collection = db["chat_sessions"]
 chat_messages_collection = db["chat_messages"]
+
+# -----------------------------
+# NEW: EMAIL OTP VERIFICATION COLLECTION
+# -----------------------------
+email_verifications_collection = db["email_verifications"]
 
 
 # -----------------------------
@@ -73,10 +81,38 @@ def get_user_by_email(email: str):
     }
 
 
-# -----------------------------
-# DOCUMENTS
-# -----------------------------
+# =========================================================
+# NEW OTP / EMAIL VERIFICATION HELPERS
+# =========================================================
 
+def save_email_verification(name, email, password_hash, otp, expires_at):
+    """
+    Save temporary OTP record before user is created
+    """
+
+    record = {
+        "name": name,
+        "email": email,
+        "password_hash": password_hash,
+        "otp": otp,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    email_verifications_collection.insert_one(record)
+
+
+def get_email_verification(email: str):
+    return email_verifications_collection.find_one({"email": email})
+
+
+def delete_email_verification(email: str):
+    email_verifications_collection.delete_one({"email": email})
+
+
+# -----------------------------
+# DOCUMENTS (UNCHANGED)
+# -----------------------------
 def save_document_metadata(
     file_id: str,
     file_name: str,
@@ -156,9 +192,8 @@ def get_document_by_file_id_for_user(file_id: str, user_id: str):
 
 
 # -----------------------------
-# CHAT SESSIONS
+# CHAT SESSIONS (UNCHANGED)
 # -----------------------------
-
 def get_or_create_chat_session(user_id, document_id, title=None):
     user_id = str(user_id)
 
@@ -220,9 +255,8 @@ def get_chat_session_by_id_for_user(chat_id: str, user_id: str):
 
 
 # -----------------------------
-# CHAT MESSAGES
+# CHAT MESSAGES (UNCHANGED)
 # -----------------------------
-
 def save_chat_message(
     chat_id,
     role,
