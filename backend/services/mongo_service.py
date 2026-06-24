@@ -23,6 +23,7 @@ users_collection = db["users"]
 documents_collection = db["documents"]
 chat_sessions_collection = db["chat_sessions"]
 chat_messages_collection = db["chat_messages"]
+email_verifications_collection = db["email_verifications"]
 
 
 # -----------------------------
@@ -72,6 +73,48 @@ def get_user_by_email(email: str):
         "name": user.get("name"),
         "email": user.get("email"),
     }
+
+
+# -----------------------------
+# EMAIL OTP VERIFICATION HELPERS
+# -----------------------------
+def save_email_verification(
+    name: str,
+    email: str,
+    password_hash: str,
+    otp: str,
+    expires_at,
+    purpose: str = "register",
+):
+    record = {
+        "name": name,
+        "email": email,
+        "password_hash": password_hash,
+        "otp": otp,
+        "expires_at": expires_at,
+        "purpose": purpose,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    email_verifications_collection.insert_one(record)
+
+
+def get_email_verification(email: str, purpose: str | None = None):
+    query = {"email": email}
+
+    if purpose:
+        query["purpose"] = purpose
+
+    return email_verifications_collection.find_one(query)
+
+
+def delete_email_verification(email: str, purpose: str | None = None):
+    query = {"email": email}
+
+    if purpose:
+        query["purpose"] = purpose
+
+    email_verifications_collection.delete_one(query)
 
 
 # -----------------------------

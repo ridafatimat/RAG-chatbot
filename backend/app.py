@@ -7,9 +7,10 @@ from slowapi import _rate_limit_exceeded_handler
 
 from services.rate_limiter import limiter
 
-from routes.upload_routes import router as upload_router
 from routes.auth_routes import router as auth_router
+from routes.upload_routes import router as upload_router
 
+# chat_routes optional (safe import)
 try:
     from routes.chat_routes import router as chat_router
 except ImportError:
@@ -67,6 +68,9 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+# -----------------------------
+# ROUTES
+# -----------------------------
 app.include_router(auth_router)
 app.include_router(upload_router)
 
@@ -74,6 +78,9 @@ if chat_router:
     app.include_router(chat_router)
 
 
+# -----------------------------
+# BASIC ENDPOINTS
+# -----------------------------
 @app.get("/")
 def home():
     return {
