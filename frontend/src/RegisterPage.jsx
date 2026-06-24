@@ -1,17 +1,23 @@
 import { useState } from "react";
 
-function LoginPage({ onLogin, goToRegister }) {
+function RegisterPage({ onRegister, goToLogin }) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
+  const API_BASE_URL = "http://localhost:8000";
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setMessage("Please enter email and password.");
+  const handleRegister = async () => {
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      setMessage("Please fill all fields.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage("Password must be at least 6 characters long.");
       return;
     }
 
@@ -19,12 +25,14 @@ function LoginPage({ onLogin, goToRegister }) {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(`${API_BASE_URL}/login`, {
+      const response = await fetch(`${API_BASE_URL}/register`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          name: name.trim(),
           email: email.trim().toLowerCase(),
           password,
         }),
@@ -33,14 +41,13 @@ function LoginPage({ onLogin, goToRegister }) {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Login failed.");
+        setMessage(data.detail || "Registration failed.");
         return;
       }
 
-      localStorage.setItem("rag_token", data.access_token);
       localStorage.setItem("rag_user", JSON.stringify(data.user));
 
-      onLogin(data.user);
+      onRegister(data.user);
     } catch (error) {
       setMessage("Could not connect to backend.");
     } finally {
@@ -53,8 +60,15 @@ function LoginPage({ onLogin, goToRegister }) {
       <div className="auth-card">
         <div className="brand-icon auth-icon">▣</div>
 
-        <h1>RAG Assistant</h1>
-        <p>Login to access your personal document workspace.</p>
+        <h1>Create Account</h1>
+        <p>Create your RAG Assistant workspace.</p>
+
+        <input
+          type="text"
+          placeholder="Enter your name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
 
         <input
           type="email"
@@ -65,25 +79,24 @@ function LoginPage({ onLogin, goToRegister }) {
 
         <input
           type="password"
-          placeholder="Enter your password"
+          placeholder="Create password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && handleLogin()}
+          onKeyDown={(event) => event.key === "Enter" && handleRegister()}
         />
 
-        <button onClick={handleLogin} disabled={loading}>
-          {loading ? "Logging in..." : "Login"}
+        <button onClick={handleRegister} disabled={loading}>
+          {loading ? "Creating account..." : "Register"}
         </button>
 
         {message && <p className="auth-message">{message}</p>}
 
         <p className="auth-link">
-          Don't have an account?{" "}
-          <span onClick={goToRegister}>Create account</span>
+          Already have an account? <span onClick={goToLogin}>Login</span>
         </p>
       </div>
     </div>
   );
 }
 
-export default LoginPage;
+export default RegisterPage;

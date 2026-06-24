@@ -7,8 +7,7 @@ function LoginPage({ onLogin, goToRegister }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
-
+  const API_BASE_URL = "http://localhost:8000";
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       setMessage("Please enter email and password.");
@@ -21,6 +20,7 @@ function LoginPage({ onLogin, goToRegister }) {
 
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -37,7 +37,6 @@ function LoginPage({ onLogin, goToRegister }) {
         return;
       }
 
-      localStorage.setItem("rag_token", data.access_token);
       localStorage.setItem("rag_user", JSON.stringify(data.user));
 
       onLogin(data.user);
