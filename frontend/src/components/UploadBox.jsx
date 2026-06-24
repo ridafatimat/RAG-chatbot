@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
+import StructuredAnswer from "./StructuredAnswer";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://localhost:8000";
 
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
@@ -15,8 +16,6 @@ function UploadBox({ user }) {
   const [sending, setSending] = useState(false);
 
   const scrollRef = useRef(null);
-
-  const getToken = () => localStorage.getItem("rag_token");
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -41,13 +40,6 @@ function UploadBox({ user }) {
       return;
     }
 
-    const token = getToken();
-
-    if (!token) {
-      setMessage("Please login first.");
-      return;
-    }
-
     const formData = new FormData();
     formData.append("file", file);
 
@@ -57,9 +49,7 @@ function UploadBox({ user }) {
 
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 
@@ -83,9 +73,7 @@ function UploadBox({ user }) {
           `${API_BASE_URL}/chat/session?document_id=${data.document.file_id}`,
           {
             method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+            credentials: "include",
           }
         );
 
@@ -110,19 +98,6 @@ function UploadBox({ user }) {
   const sendMessage = async () => {
     if (!input.trim() || !uploadedDoc || !chatId || sending) return;
 
-    const token = getToken();
-
-    if (!token) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "Please login again. Your session is missing.",
-        },
-      ]);
-      return;
-    }
-
     const question = input.trim();
 
     setMessages((prev) => [...prev, { role: "user", message: question }]);
@@ -132,9 +107,9 @@ function UploadBox({ user }) {
     try {
       const res = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           question,
@@ -151,6 +126,8 @@ function UploadBox({ user }) {
           {
             role: "assistant",
             message: data.detail || "Something went wrong.",
+            answer_type: "plain",
+            structured_answer: null,
           },
         ]);
         return;
@@ -161,6 +138,8 @@ function UploadBox({ user }) {
         {
           role: "assistant",
           message: data.answer || "No answer returned from the server.",
+          answer_type: data.answer_type || "plain",
+          structured_answer: data.structured_answer || null,
         },
       ]);
     } catch (err) {
@@ -169,6 +148,8 @@ function UploadBox({ user }) {
         {
           role: "assistant",
           message: "Something went wrong reaching the server.",
+          answer_type: "plain",
+          structured_answer: null,
         },
       ]);
     } finally {
@@ -184,7 +165,9 @@ function UploadBox({ user }) {
 
           <div>
             <h1>RAG Assistant</h1>
-            <p>{uploadedDoc ? "Document processed" : "Upload a document to begin"}</p>
+            <p>
+              {uploadedDoc ? "Document processed" : "Upload a document to begin"}
+            </p>
           </div>
         </div>
 
@@ -213,7 +196,10 @@ function UploadBox({ user }) {
 
             <span className="file-types">
               {uploadedDoc
-                ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
+                ? `${file?.name
+                    ?.split(".")
+                    .pop()
+                    ?.toUpperCase()} document processed successfully`
                 : "PDF, TXT, DOCX, PPTX, CSV, XLSX supported"}
             </span>
           </label>
@@ -247,7 +233,11 @@ function UploadBox({ user }) {
                   key={i}
                   className={m.role === "user" ? "user-message" : "bot-message"}
                 >
-                  {m.message}
+                  {m.role === "assistant" ? (
+                    <StructuredAnswer message={m} accentColor="#e53935" />
+                  ) : (
+                    m.message
+                  )}
                 </div>
               ))}
 

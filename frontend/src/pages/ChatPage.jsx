@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import StructuredAnswer from "../components/StructuredAnswer";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://localhost:8000";
 
 const COLORS = {
   bg: "#121212",
@@ -18,30 +19,14 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
 
-  const getToken = () => localStorage.getItem("rag_token");
-
   useEffect(() => {
     if (!chatId) return;
 
     const loadChat = async () => {
       try {
-        const token = getToken();
-
-        if (!token) {
-          setMessages([
-            {
-              role: "assistant",
-              message: "Please login again. Your session is missing.",
-            },
-          ]);
-          return;
-        }
-
         const res = await fetch(`${API_BASE_URL}/chat/${chatId}`, {
           method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: "include",
         });
 
         const data = await res.json();
@@ -51,6 +36,8 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
             {
               role: "assistant",
               message: data.detail || "Could not load chat history.",
+              answer_type: "plain",
+              structured_answer: null,
             },
           ]);
           return;
@@ -62,6 +49,8 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           {
             role: "assistant",
             message: "Could not load chat history.",
+            answer_type: "plain",
+            structured_answer: null,
           },
         ]);
       }
@@ -79,25 +68,14 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
-    const token = getToken();
-
-    if (!token) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "Please login again. Your session is missing.",
-        },
-      ]);
-      return;
-    }
-
     if (!document?.file_id) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           message: "No document selected.",
+          answer_type: "plain",
+          structured_answer: null,
         },
       ]);
       return;
@@ -112,9 +90,9 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
     try {
       const res = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           question,
@@ -131,6 +109,8 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           {
             role: "assistant",
             message: data.detail || "Something went wrong.",
+            answer_type: "plain",
+            structured_answer: null,
           },
         ]);
         return;
@@ -140,7 +120,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
         ...prev,
         {
           role: "assistant",
-          message: data.answer,
+          message: data.answer || "No answer returned from the server.",
           answer_type: data.answer_type || "plain",
           structured_answer: data.structured_answer || null,
         },
@@ -151,202 +131,13 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
         {
           role: "assistant",
           message: "Could not connect to backend.",
+          answer_type: "plain",
+          structured_answer: null,
         },
       ]);
     } finally {
       setLoading(false);
     }
-  };
-
-  const renderStructuredAnswer = (message) => {
-    const type = message.answer_type;
-    const data = message.structured_answer;
-
-    if (!data || type === "plain") {
-      return <span>{message.message}</span>;
-    }
-
-    if (type === "mcq" || type === "quiz") {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          {data.title && (
-            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
-          )}
-
-          {(data.questions || []).map((q, index) => (
-            <div
-              key={index}
-              style={{
-                background: "#1f1f1f",
-                border: `1px solid ${COLORS.border}`,
-                borderLeft: `4px solid ${COLORS.orange}`,
-                borderRadius: "12px",
-                padding: "14px",
-              }}
-            >
-              <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
-                {index + 1}. {q.question}
-              </p>
-
-              <div style={{ display: "grid", gap: "7px" }}>
-                {(q.options || []).map((option, optionIndex) => (
-                  <div
-                    key={optionIndex}
-                    style={{
-                      background: "#151515",
-                      border: `1px solid ${COLORS.border}`,
-                      borderRadius: "8px",
-                      padding: "8px 10px",
-                    }}
-                  >
-                    {option}
-                  </div>
-                ))}
-              </div>
-
-              {q.answer && (
-                <p style={{ margin: "12px 0 0", color: COLORS.orange }}>
-                  <strong>Answer:</strong> {q.answer}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    if (type === "short_questions") {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {data.title && (
-            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
-          )}
-
-          {(data.questions || []).map((q, index) => (
-            <div
-              key={index}
-              style={{
-                background: "#1f1f1f",
-                border: `1px solid ${COLORS.border}`,
-                borderLeft: `4px solid ${COLORS.orange}`,
-                borderRadius: "12px",
-                padding: "14px",
-              }}
-            >
-              <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
-                {index + 1}. {q.question}
-              </p>
-
-              {q.answer && (
-                <p style={{ margin: 0, color: COLORS.textDim }}>
-                  <strong style={{ color: COLORS.orange }}>Answer:</strong>{" "}
-                  {q.answer}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    if (type === "true_false") {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {data.title && (
-            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
-          )}
-
-          {(data.statements || []).map((item, index) => (
-            <div
-              key={index}
-              style={{
-                background: "#1f1f1f",
-                border: `1px solid ${COLORS.border}`,
-                borderLeft: `4px solid ${COLORS.orange}`,
-                borderRadius: "12px",
-                padding: "14px",
-              }}
-            >
-              <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
-                {index + 1}. {item.statement}
-              </p>
-
-              <span
-                style={{
-                  display: "inline-block",
-                  background: item.answer === "True" ? "#1f3d2b" : "#3d1f1f",
-                  color: COLORS.textLight,
-                  borderRadius: "999px",
-                  padding: "5px 12px",
-                  fontWeight: 700,
-                }}
-              >
-                {item.answer}
-              </span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    if (type === "past_paper") {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {data.title && (
-            <h3 style={{ margin: 0, color: COLORS.orange }}>{data.title}</h3>
-          )}
-
-          {(data.sections || []).map((section, sectionIndex) => (
-            <div
-              key={sectionIndex}
-              style={{
-                background: "#1f1f1f",
-                border: `1px solid ${COLORS.border}`,
-                borderRadius: "12px",
-                padding: "16px",
-              }}
-            >
-              <h4 style={{ margin: "0 0 12px", color: COLORS.orange }}>
-                {section.heading}
-              </h4>
-
-              {(section.questions || []).map((q, index) => (
-                <div
-                  key={index}
-                  style={{
-                    borderTop:
-                      index === 0 ? "none" : `1px solid ${COLORS.border}`,
-                    paddingTop: index === 0 ? 0 : "12px",
-                    marginTop: index === 0 ? 0 : "12px",
-                  }}
-                >
-                  <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
-                    {index + 1}. {q.question}
-                  </p>
-
-                  {q.marks && (
-                    <p style={{ margin: 0, color: COLORS.textDim }}>
-                      Marks: {q.marks}
-                    </p>
-                  )}
-
-                  {q.answer && (
-                    <p style={{ margin: "8px 0 0", color: COLORS.textDim }}>
-                      <strong style={{ color: COLORS.orange }}>
-                        Suggested answer:
-                      </strong>{" "}
-                      {q.answer}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    return <span>{message.message}</span>;
   };
 
   return (
@@ -490,7 +281,11 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {m.role === "assistant" ? renderStructuredAnswer(m) : m.message}
+                {m.role === "assistant" ? (
+                  <StructuredAnswer message={m} accentColor={COLORS.orange} />
+                ) : (
+                  m.message
+                )}
               </div>
             </div>
           ))}

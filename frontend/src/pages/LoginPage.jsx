@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
 function LoginPage({ onLogin }) {
-  const [mode, setMode] = useState("login"); 
+  const [mode, setMode] = useState("login");
   // login | register | otp | forgot
 
-  const [otpMode, setOtpMode] = useState("register"); 
+  const [otpMode, setOtpMode] = useState("register");
   // register | reset
 
   const [name, setName] = useState("");
@@ -23,7 +23,8 @@ function LoginPage({ onLogin }) {
 
   const intervalRef = useRef(null);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
   // ---------------- RESET ----------------
   const resetAll = () => {
@@ -66,6 +67,7 @@ function LoginPage({ onLogin }) {
           setCanResend(true);
           return 0;
         }
+
         return prev - 1;
       });
     }, 1000);
@@ -87,7 +89,10 @@ function LoginPage({ onLogin }) {
     try {
       const res = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
@@ -101,12 +106,10 @@ function LoginPage({ onLogin }) {
         return;
       }
 
-      localStorage.setItem("rag_token", data.access_token);
       localStorage.setItem("rag_user", JSON.stringify(data.user));
 
       setMessage("Login successful!");
       onLogin?.(data.user);
-
     } catch {
       setMessage("Server error");
     } finally {
@@ -130,7 +133,10 @@ function LoginPage({ onLogin }) {
     try {
       const res = await fetch(`${API_BASE_URL}/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           name,
           email: email.trim().toLowerCase(),
@@ -148,7 +154,6 @@ function LoginPage({ onLogin }) {
 
       setMessage("Verification code sent to your email");
       startTimer();
-
     } catch {
       setMessage("Server error");
       setMode("register");
@@ -165,7 +170,10 @@ function LoginPage({ onLogin }) {
     try {
       const res = await fetch(`${API_BASE_URL}/forgot-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
         }),
@@ -183,7 +191,6 @@ function LoginPage({ onLogin }) {
 
       setMessage("Password reset code sent to your email");
       startTimer();
-
     } catch {
       setMessage("Server error");
     } finally {
@@ -216,7 +223,10 @@ function LoginPage({ onLogin }) {
 
       const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       });
 
@@ -228,15 +238,15 @@ function LoginPage({ onLogin }) {
       }
 
       if (otpMode === "reset") {
-        setMessage("Password reset successful!");
+        setMessage("Password reset successful! Please login.");
         setMode("login");
       } else {
-        localStorage.setItem("rag_token", data.access_token);
+        // Security: token is stored in httpOnly cookie by backend.
+        // Do not store access_token in localStorage.
         localStorage.setItem("rag_user", JSON.stringify(data.user));
         setMessage("Account verified!");
         onLogin?.(data.user);
       }
-
     } catch {
       setMessage("Server error");
     } finally {
@@ -254,7 +264,10 @@ function LoginPage({ onLogin }) {
     try {
       const res = await fetch(`${API_BASE_URL}/resend-otp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
         }),
@@ -268,7 +281,6 @@ function LoginPage({ onLogin }) {
       } else {
         setMessage(data?.detail || "Failed to resend");
       }
-
     } catch {
       setMessage("Server error");
     } finally {
@@ -280,7 +292,6 @@ function LoginPage({ onLogin }) {
   return (
     <div className="auth-page">
       <div className="auth-card">
-
         <h1>RAG Assistant</h1>
 
         {/* LOGIN */}
@@ -299,15 +310,29 @@ function LoginPage({ onLogin }) {
               onChange={(e) => setPassword(e.target.value)}
             />
 
-            <button onClick={handleLogin}>
+            <button onClick={handleLogin} disabled={loading}>
               Login
             </button>
 
-            <p onClick={goToRegister} style={{ cursor: "pointer", color: "orange", fontWeight: "bold" }}>
+            <p
+              onClick={goToRegister}
+              style={{
+                cursor: "pointer",
+                color: "orange",
+                fontWeight: "bold",
+              }}
+            >
               Create Account
             </p>
 
-            <p onClick={goToForgot} style={{ cursor: "pointer",  color: "orange", fontWeight: "bold" }}>
+            <p
+              onClick={goToForgot}
+              style={{
+                cursor: "pointer",
+                color: "orange",
+                fontWeight: "bold",
+              }}
+            >
               Forgot Password?
             </p>
           </>
@@ -316,22 +341,46 @@ function LoginPage({ onLogin }) {
         {/* REGISTER */}
         {mode === "register" && (
           <>
-            <input placeholder="Name" value={name}
-              onChange={(e) => setName(e.target.value)} />
+            <input
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
 
-            <input placeholder="Email" value={email}
-              onChange={(e) => setEmail(e.target.value)} />
+            <input
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
-            <input type="password" placeholder="Password" value={password}
-              onChange={(e) => setPassword(e.target.value)} />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
 
-            <input type="password" placeholder="Confirm Password"
+            <input
+              type="password"
+              placeholder="Confirm Password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)} />
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
 
-            <button onClick={handleRegister}>
+            <button onClick={handleRegister} disabled={loading}>
               Create Account
             </button>
+
+            <p
+              onClick={goToLogin}
+              style={{
+                cursor: "pointer",
+                color: "orange",
+                fontWeight: "bold",
+              }}
+            >
+              Back to Login
+            </p>
           </>
         )}
 
@@ -363,11 +412,11 @@ function LoginPage({ onLogin }) {
                 : "Verification code valid for 5 minutes"}
             </p>
 
-            <button onClick={handleVerifyOTP}>
+            <button onClick={handleVerifyOTP} disabled={loading}>
               {otpMode === "reset" ? "Reset Password" : "Verify Account"}
             </button>
 
-            <button onClick={resendOTP} disabled={!canResend}>
+            <button onClick={resendOTP} disabled={!canResend || loading}>
               Resend Code
             </button>
 
@@ -375,6 +424,17 @@ function LoginPage({ onLogin }) {
               {canResend
                 ? "You can resend now"
                 : `Resend available in ${timer}s`}
+            </p>
+
+            <p
+              onClick={goToLogin}
+              style={{
+                cursor: "pointer",
+                color: "orange",
+                fontWeight: "bold",
+              }}
+            >
+              Back to Login
             </p>
           </>
         )}
@@ -388,14 +448,24 @@ function LoginPage({ onLogin }) {
               onChange={(e) => setEmail(e.target.value)}
             />
 
-            <button onClick={handleForgotPassword}>
+            <button onClick={handleForgotPassword} disabled={loading}>
               Send Reset Code
             </button>
+
+            <p
+              onClick={goToLogin}
+              style={{
+                cursor: "pointer",
+                color: "orange",
+                fontWeight: "bold",
+              }}
+            >
+              Back to Login
+            </p>
           </>
         )}
 
         {message && <p>{message}</p>}
-
       </div>
     </div>
   );

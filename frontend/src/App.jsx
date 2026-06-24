@@ -9,8 +9,7 @@ import ChatPage from "./pages/ChatPage";
 
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
-
+const API_BASE_URL = "http://localhost:8000";
 function App() {
   const [page, setPage] = useState("login");
   const [user, setUser] = useState(null);
@@ -53,7 +52,11 @@ function App() {
 
     try {
       const res = await fetch(
-        `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${doc.file_id}`
+        `${API_BASE_URL}/chat/session?document_id=${doc.file_id}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
       );
 
       const data = await res.json();
@@ -84,7 +87,16 @@ function App() {
   };
 
   // ---------------- LOGOUT ----------------
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+
     localStorage.removeItem("rag_user");
 
     setUser(null);
