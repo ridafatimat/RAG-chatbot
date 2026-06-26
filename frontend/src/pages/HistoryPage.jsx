@@ -7,9 +7,19 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
+  const getToken = () => localStorage.getItem("rag_token");
+
   const fetchDocuments = async () => {
     if (!user?._id) {
       setMessage("User not found. Please login again.");
+      setLoading(false);
+      return;
+    }
+
+    const token = getToken();
+
+    if (!token) {
+      setMessage("Please login again. Your session is missing.");
       setLoading(false);
       return;
     }
@@ -19,7 +29,13 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
       setMessage("");
 
       const response = await fetch(
-        `${API_BASE_URL}/documents/user/${user._id}`
+        `${API_BASE_URL}/documents/user/${user._id}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
       const data = await response.json();

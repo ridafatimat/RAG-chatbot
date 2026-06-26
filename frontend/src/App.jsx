@@ -18,6 +18,7 @@ function App() {
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [chatId, setChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [chatOpenError, setChatOpenError] = useState("");
 
   // ---------------- LOGIN RESTORE ----------------
   useEffect(() => {
@@ -44,21 +45,42 @@ function App() {
       console.error("Missing user ID or document ID.");
       return;
     }
+
+    const token = localStorage.getItem("rag_token");
+
+    if (!token) {
+      setChatOpenError("Please login again. Your session is missing.");
+      return;
+    }
+
     setSelectedDocument(doc);
     setMessages([]);
+    setChatOpenError("");
+
     try {
       const res = await fetch(
-        `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${doc.file_id}`
+        `${API_BASE_URL}/chat/session?document_id=${doc.file_id}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
+
       const data = await res.json();
+
       if (!res.ok) {
         console.error("Could not open chat session:", data.detail);
+        setChatOpenError(data.detail || "Could not open chat session.");
         return;
       }
+
       setChatId(data.chat_id);
       setPage("chat");
     } catch (err) {
       console.error("Chat open error:", err);
+      setChatOpenError("Could not connect to backend.");
     }
   };
 
@@ -72,6 +94,7 @@ function App() {
   // ---------------- LOGOUT ----------------
   const handleLogout = () => {
     localStorage.removeItem("rag_user");
+    localStorage.removeItem("rag_token");
     setUser(null);
     setSelectedDocument(null);
     setChatId(null);
@@ -112,11 +135,28 @@ function App() {
 
   if (page === "history") {
     return (
-      <HistoryPage
-        user={user}
-        goBack={() => setPage("dashboard")}
-        openDocumentChat={openDocumentChat}
-      />
+      <>
+        {chatOpenError && (
+          <div
+            style={{
+              background: "#2a1313",
+              color: "#ff6b6b",
+              border: "1px solid #4a1f1f",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              margin: "12px 20px 0",
+              fontSize: "13px",
+            }}
+          >
+            {chatOpenError}
+          </div>
+        )}
+        <HistoryPage
+          user={user}
+          goBack={() => setPage("dashboard")}
+          openDocumentChat={openDocumentChat}
+        />
+      </>
     );
   }
 
