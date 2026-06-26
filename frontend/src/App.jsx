@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./RegisterPage";
+import HomePage from "./pages/HomePage";
 import DashboardPage from "./pages/DashboardPage";
 import UploadPage from "./pages/UploadPage";
 import HistoryPage from "./pages/HistoryPage";
@@ -12,7 +12,7 @@ import "./App.css";
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 function App() {
-  const [page, setPage] = useState("login");
+  const [page, setPage] = useState("home");
   const [user, setUser] = useState(null);
 
   const [selectedDocument, setSelectedDocument] = useState(null);
@@ -22,22 +22,19 @@ function App() {
   // ---------------- LOGIN RESTORE ----------------
   useEffect(() => {
     const savedUser = localStorage.getItem("rag_user");
-
     if (!savedUser) return;
-
     try {
       const parsedUser = JSON.parse(savedUser);
-
       if (parsedUser?._id && parsedUser?.email) {
         setUser(parsedUser);
         setPage("dashboard");
       } else {
         localStorage.removeItem("rag_user");
-        setPage("login");
+        setPage("home");
       }
-    } catch (error) {
+    } catch {
       localStorage.removeItem("rag_user");
-      setPage("login");
+      setPage("home");
     }
   }, []);
 
@@ -47,22 +44,17 @@ function App() {
       console.error("Missing user ID or document ID.");
       return;
     }
-
     setSelectedDocument(doc);
     setMessages([]);
-
     try {
       const res = await fetch(
         `${API_BASE_URL}/chat/session?user_id=${user._id}&document_id=${doc.file_id}`
       );
-
       const data = await res.json();
-
       if (!res.ok) {
         console.error("Could not open chat session:", data.detail);
         return;
       }
-
       setChatId(data.chat_id);
       setPage("chat");
     } catch (err) {
@@ -70,47 +62,30 @@ function App() {
     }
   };
 
-  // ---------------- LOGIN / REGISTER ----------------
+  // ---------------- LOGIN ----------------
   const handleLogin = (loggedInUser) => {
     localStorage.setItem("rag_user", JSON.stringify(loggedInUser));
     setUser(loggedInUser);
     setPage("dashboard");
   };
 
-  const handleRegister = (registeredUser) => {
-    localStorage.setItem("rag_user", JSON.stringify(registeredUser));
-    setUser(registeredUser);
-    setPage("dashboard");
-  };
-
   // ---------------- LOGOUT ----------------
   const handleLogout = () => {
     localStorage.removeItem("rag_user");
-
     setUser(null);
     setSelectedDocument(null);
     setChatId(null);
     setMessages([]);
-    setPage("login");
+    setPage("home");
   };
 
   // ---------------- ROUTES ----------------
-  if (page === "login") {
-    return (
-      <LoginPage
-        onLogin={handleLogin}
-        goToRegister={() => setPage("register")}
-      />
-    );
+  if (page === "home") {
+    return <HomePage onNavigate={setPage} />;
   }
 
-  if (page === "register") {
-    return (
-      <RegisterPage
-        onRegister={handleRegister}
-        goToLogin={() => setPage("login")}
-      />
-    );
+  if (page === "login" || page === "register") {
+    return <LoginPage initialMode={page} onLogin={handleLogin} />;
   }
 
   if (page === "dashboard") {
