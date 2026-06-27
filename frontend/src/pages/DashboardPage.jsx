@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -18,11 +19,16 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
   const menuRef = useRef(null);
 
   useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
       }
     }
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -37,12 +43,13 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
     <div className="dash-root">
       <style>{`
         :root {
-          --bg: #0a0a0a;
+          --bg: #050505;
           --surface: #111111;
           --surface-2: #0d0d0d;
           --border: #1f1f1f;
-          --orange: #ff6b00;
-          --orange-dim: #ff6b0026;
+          --orange: #d63b32;
+          --orange-hover: #eb493e;
+          --orange-dim: rgba(214, 59, 50, 0.15);
           --text: #ffffff;
           --text-muted: #888888;
           --text-faint: #666666;
@@ -63,7 +70,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           border-bottom: 1px solid var(--border);
           position: sticky;
           top: 0;
-          background: rgba(10, 10, 10, 0.85);
+          background: rgba(5, 5, 5, 0.88);
           backdrop-filter: blur(10px);
           z-index: 50;
         }
@@ -80,6 +87,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           position: relative;
           flex-shrink: 0;
         }
+
         .scan-mark span {
           position: absolute;
           width: 12px;
@@ -87,10 +95,35 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           border: 2px solid var(--orange);
           transition: all 0.3s ease;
         }
-        .scan-mark .tl { top: 0; left: 0; border-right: none; border-bottom: none; }
-        .scan-mark .tr { top: 0; right: 0; border-left: none; border-bottom: none; }
-        .scan-mark .bl { bottom: 0; left: 0; border-right: none; border-top: none; }
-        .scan-mark .br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+        .scan-mark .tl {
+          top: 0;
+          left: 0;
+          border-right: none;
+          border-bottom: none;
+        }
+
+        .scan-mark .tr {
+          top: 0;
+          right: 0;
+          border-left: none;
+          border-bottom: none;
+        }
+
+        .scan-mark .bl {
+          bottom: 0;
+          left: 0;
+          border-right: none;
+          border-top: none;
+        }
+
+        .scan-mark .br {
+          bottom: 0;
+          right: 0;
+          border-left: none;
+          border-top: none;
+        }
+
         .scan-mark::after {
           content: '';
           position: absolute;
@@ -102,9 +135,16 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           box-shadow: 0 0 8px var(--orange);
           animation: scanline 2.4s ease-in-out infinite;
         }
+
         @keyframes scanline {
-          0%, 100% { top: 22%; opacity: 0.4; }
-          50% { top: 78%; opacity: 1; }
+          0%, 100% {
+            top: 22%;
+            opacity: 0.4;
+          }
+          50% {
+            top: 78%;
+            opacity: 1;
+          }
         }
 
         .brand-text h1 {
@@ -114,6 +154,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           margin: 0;
           line-height: 1.2;
         }
+
         .brand-text p {
           font-size: 13px;
           color: var(--text-muted);
@@ -135,9 +176,11 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           cursor: pointer;
           transition: border-color 0.2s ease;
         }
+
         .avatar-btn:hover {
           border-color: var(--orange);
         }
+
         .avatar-circle {
           width: 30px;
           height: 30px;
@@ -152,6 +195,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           justify-content: center;
           letter-spacing: 0;
         }
+
         .avatar-btn .uname {
           font-size: 13px;
           font-weight: 600;
@@ -161,11 +205,13 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+
         .avatar-btn .chev {
           color: var(--text-faint);
           font-size: 10px;
           transition: transform 0.2s ease;
         }
+
         .avatar-btn .chev.open {
           transform: rotate(180deg);
         }
@@ -179,13 +225,20 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           border-radius: 14px;
           min-width: 220px;
           padding: 8px;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
           animation: dropIn 0.16s ease;
           z-index: 100;
         }
+
         @keyframes dropIn {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
+          from {
+            opacity: 0;
+            transform: translateY(-6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .dropdown-label {
@@ -213,15 +266,19 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           text-align: left;
           transition: background 0.15s ease;
         }
+
         .dropdown-item:hover {
           background: #1a1a1a;
         }
+
         .dropdown-item.danger {
           color: #ff5c5c;
         }
+
         .dropdown-item.danger:hover {
           background: #2a131388;
         }
+
         .dropdown-item svg {
           flex-shrink: 0;
         }
@@ -237,12 +294,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           max-width: 1100px;
           margin: 0 auto;
         }
+
         .dash-hero h2 {
           font-size: 34px;
           font-weight: 800;
           letter-spacing: -1px;
           margin: 0 0 10px 0;
         }
+
         .dash-hero p {
           font-size: 15px;
           color: var(--text-muted);
@@ -261,10 +320,21 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
         }
 
         @media (max-width: 720px) {
-          .dash-actions { grid-template-columns: 1fr; }
-          .dash-header { padding: 16px 20px; }
-          .dash-hero { padding: 40px 20px 24px; }
-          .dash-actions { padding: 0 20px 40px; }
+          .dash-actions {
+            grid-template-columns: 1fr;
+          }
+
+          .dash-header {
+            padding: 16px 20px;
+          }
+
+          .dash-hero {
+            padding: 40px 20px 24px;
+          }
+
+          .dash-actions {
+            padding: 0 20px 40px;
+          }
         }
 
         .action-card {
@@ -277,11 +347,13 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           position: relative;
           overflow: hidden;
         }
+
         .action-card:hover {
           transform: translateY(-4px);
           border-color: var(--orange);
           box-shadow: 0 8px 30px var(--orange-dim);
         }
+
         .action-card:focus-visible {
           outline: 2px solid var(--orange);
           outline-offset: 2px;
@@ -305,12 +377,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           letter-spacing: -0.3px;
           margin: 0 0 8px 0;
         }
+
         .action-card p {
           font-size: 13.5px;
           color: var(--text-muted);
           line-height: 1.55;
           margin: 0 0 18px 0;
         }
+
         .action-card span.cta {
           font-size: 13px;
           font-weight: 700;
@@ -318,11 +392,10 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           letter-spacing: 0.2px;
         }
 
-        /* ---------- Modal ---------- */
         .modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.65);
+          background: rgba(0, 0, 0, 0.65);
           backdrop-filter: blur(4px);
           display: flex;
           align-items: center;
@@ -331,9 +404,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           animation: fadeIn 0.15s ease;
           padding: 20px;
         }
+
         @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
         }
 
         .modal-card {
@@ -345,9 +423,16 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           padding: 0;
           animation: modalIn 0.2s ease;
         }
+
         @keyframes modalIn {
-          from { opacity: 0; transform: translateY(8px) scale(0.98); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+          from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
         }
 
         .modal-header {
@@ -356,12 +441,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           justify-content: space-between;
           padding: 22px 24px 0;
         }
+
         .modal-header h3 {
           font-size: 17px;
           font-weight: 800;
           letter-spacing: -0.4px;
           margin: 0;
         }
+
         .modal-close {
           background: transparent;
           border: none;
@@ -371,6 +458,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           line-height: 1;
           padding: 4px;
         }
+
         .modal-close:hover {
           color: var(--text);
         }
@@ -384,6 +472,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           border-radius: 10px;
           padding: 4px;
         }
+
         .modal-tab {
           flex: 1;
           text-align: center;
@@ -399,6 +488,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           cursor: pointer;
           transition: all 0.15s ease;
         }
+
         .modal-tab.active {
           background: var(--orange);
           color: #000;
@@ -411,6 +501,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
         .field-group {
           margin-bottom: 16px;
         }
+
         .field-label {
           display: block;
           font-size: 11px;
@@ -420,6 +511,7 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           font-weight: 700;
           margin-bottom: 7px;
         }
+
         .field-input {
           width: 100%;
           background: var(--surface-2);
@@ -433,9 +525,11 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           transition: border-color 0.15s ease;
           box-sizing: border-box;
         }
+
         .field-input:focus {
           border-color: var(--orange);
         }
+
         .field-input::placeholder {
           color: var(--text-faint);
         }
@@ -447,11 +541,13 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           border-radius: 8px;
           margin-bottom: 14px;
         }
+
         .form-msg.error {
           background: #2a1313;
           color: #ff6b6b;
           border: 1px solid #4a1f1f;
         }
+
         .form-msg.success {
           background: #14241a;
           color: #4ade80;
@@ -469,23 +565,26 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           transition: opacity 0.15s ease, transform 0.1s ease;
           width: 100%;
         }
+
         .btn:active {
           transform: scale(0.98);
         }
+
         .btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
         }
+
         .btn-solid {
           background: var(--orange);
           color: #000;
         }
+
         .btn-solid:hover:not(:disabled) {
-          opacity: 0.9;
+          background: var(--orange-hover);
         }
       `}</style>
 
-      {/* HEADER */}
       <header className="dash-header">
         <div className="brand-block">
           <div className="scan-mark">
@@ -494,16 +593,19 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
             <span className="bl"></span>
             <span className="br"></span>
           </div>
+
           <div className="brand-text">
             <h1>RAG Assistant</h1>
-            <p>Welcome, {currentUser?.name}</p>
+            <p>Welcome, {currentUser?.name || "User"}</p>
           </div>
         </div>
 
         <div className="header-right" ref={menuRef}>
           <button className="avatar-btn" onClick={() => setMenuOpen((o) => !o)}>
-            <div className="avatar-circle">{getInitials(currentUser?.name)}</div>
-            <span className="uname">{currentUser?.name}</span>
+            <div className="avatar-circle">
+              {getInitials(currentUser?.name)}
+            </div>
+            <span className="uname">{currentUser?.name || "User"}</span>
             <span className={`chev ${menuOpen ? "open" : ""}`}>▼</span>
           </button>
 
@@ -511,16 +613,36 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
             <div className="dropdown">
               <div className="dropdown-label">Account</div>
 
-              <button className="dropdown-item" onClick={() => openSettings("name")}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <button
+                className="dropdown-item"
+                onClick={() => openSettings("name")}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                   <circle cx="12" cy="7" r="4" />
                 </svg>
                 Edit name
               </button>
 
-              <button className="dropdown-item" onClick={() => openSettings("password")}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <button
+                className="dropdown-item"
+                onClick={() => openSettings("password")}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <rect x="3" y="11" width="18" height="11" rx="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
@@ -530,7 +652,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
               <div className="dropdown-divider"></div>
 
               <button className="dropdown-item danger" onClick={onLogout}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                   <polyline points="16 17 21 12 16 7" />
                   <line x1="21" y1="12" x2="9" y2="12" />
@@ -542,7 +671,6 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
         </div>
       </header>
 
-      {/* HERO */}
       <section className="dash-hero">
         <h2>Your Document Workspace</h2>
         <p>
@@ -551,7 +679,6 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
         </p>
       </section>
 
-      {/* ACTIONS */}
       <section className="dash-actions">
         <div
           className="action-card"
@@ -561,7 +688,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           onKeyDown={(e) => e.key === "Enter" && goToUpload()}
         >
           <div className="action-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
@@ -580,7 +714,14 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
           onKeyDown={(e) => e.key === "Enter" && goToHistory()}
         >
           <div className="action-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="9" />
               <polyline points="12 7 12 12 16 14" />
             </svg>
@@ -591,7 +732,6 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
         </div>
       </section>
 
-      {/* SETTINGS MODAL — popup, no new route/page */}
       {settingsOpen && (
         <SettingsModal
           activeTab={activeTab}
@@ -605,7 +745,13 @@ function DashboardPage({ user, onLogout, goToUpload, goToHistory }) {
   );
 }
 
-function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, onClose }) {
+function SettingsModal({
+  activeTab,
+  setActiveTab,
+  currentUser,
+  setCurrentUser,
+  onClose,
+}) {
   const [name, setName] = useState(currentUser?.name || "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -626,19 +772,20 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
     setSuccess("");
 
     const trimmed = name.trim();
+
     if (!trimmed) {
       setError("Name cannot be empty.");
       return;
     }
 
     setLoading(true);
+
     try {
-      const token = localStorage.getItem("rag_token");
       const res = await fetch(`${API_BASE_URL}/change-name`, {
         method: "PUT",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ name: trimmed }),
       });
@@ -669,23 +816,25 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
       setError("Please fill in all fields.");
       return;
     }
+
     if (newPassword.length < 6) {
       setError("New password must be at least 6 characters long.");
       return;
     }
+
     if (newPassword !== confirmPassword) {
       setError("New password and confirmation do not match.");
       return;
     }
 
     setLoading(true);
+
     try {
-      const token = localStorage.getItem("rag_token");
       const res = await fetch(`${API_BASE_URL}/change-password`, {
         method: "PUT",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           current_password: currentPassword,
@@ -712,11 +861,16 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="modal-card">
         <div className="modal-header">
           <h3>Profile Settings</h3>
-          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
         </div>
 
         <div className="modal-tabs">
@@ -726,6 +880,7 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
           >
             Name
           </button>
+
           <button
             className={`modal-tab ${activeTab === "password" ? "active" : ""}`}
             onClick={() => switchTab("password")}
@@ -751,6 +906,7 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
                   autoFocus
                 />
               </div>
+
               <button className="btn btn-solid" type="submit" disabled={loading}>
                 {loading ? "Saving..." : "Save name"}
               </button>
@@ -768,6 +924,7 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
                   autoFocus
                 />
               </div>
+
               <div className="field-group">
                 <label className="field-label">New password</label>
                 <input
@@ -778,6 +935,7 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
                   placeholder="At least 6 characters"
                 />
               </div>
+
               <div className="field-group">
                 <label className="field-label">Confirm new password</label>
                 <input
@@ -788,6 +946,7 @@ function SettingsModal({ activeTab, setActiveTab, currentUser, setCurrentUser, o
                   placeholder="Re-enter new password"
                 />
               </div>
+
               <button className="btn btn-solid" type="submit" disabled={loading}>
                 {loading ? "Updating..." : "Update password"}
               </button>

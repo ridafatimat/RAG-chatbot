@@ -61,7 +61,7 @@ function HomePage({ onNavigate }) {
       .hp-nav-logo {
         font-size: 1.3rem;
         font-weight: 700;
-        color: #ff6b00;
+        color: #d63b32;
         letter-spacing: -0.5px;
       }
 
@@ -87,9 +87,9 @@ function HomePage({ onNavigate }) {
 
       .hp-btn-outline {
         padding: 0.5rem 1.2rem;
-        border: 1.5px solid #ff6b00;
+        border: 1.5px solid #d63b32;
         background: transparent;
-        color: #ff6b00;
+        color: #d63b32;
         border-radius: 8px;
         font-size: 0.875rem;
         font-weight: 500;
@@ -98,14 +98,14 @@ function HomePage({ onNavigate }) {
       }
 
       .hp-btn-outline:hover {
-        background: #ff6b00;
+        background: #d63b32;
         color: #000;
       }
 
       .hp-btn-solid {
         padding: 0.5rem 1.2rem;
         border: none;
-        background: #ff6b00;
+        background: #d63b32;
         color: #000;
         border-radius: 8px;
         font-size: 0.875rem;
@@ -146,7 +146,7 @@ function HomePage({ onNavigate }) {
       .hp-hero-badge {
         display: inline-block;
         background: rgba(255, 107, 0, 0.12);
-        color: #ff6b00;
+        color: #d63b32;
         border: 1px solid rgba(255, 107, 0, 0.3);
         padding: 0.35rem 1rem;
         border-radius: 999px;
@@ -165,7 +165,7 @@ function HomePage({ onNavigate }) {
         max-width: 780px;
       }
 
-      .hp-hero h1 span { color: #ff6b00; }
+      .hp-hero h1 span { color: #d63b32; }
 
       .hp-hero p {
         font-size: 1.1rem;
@@ -184,7 +184,7 @@ function HomePage({ onNavigate }) {
 
       .hp-btn-hero-solid {
         padding: 0.85rem 2rem;
-        background: #ff6b00;
+        background: #d63b32;
         color: #000;
         border: none;
         border-radius: 10px;
@@ -212,8 +212,8 @@ function HomePage({ onNavigate }) {
       }
 
       .hp-btn-hero-ghost:hover {
-        border-color: #ff6b00;
-        color: #ff6b00;
+        border-color: #d63b32;
+        color: #d63b32;
       }
 
       .hp-section {
@@ -226,7 +226,7 @@ function HomePage({ onNavigate }) {
         text-align: center;
         font-size: 0.8rem;
         font-weight: 600;
-        color: #ff6b00;
+        color: #d63b32;
         text-transform: uppercase;
         letter-spacing: 1.5px;
         margin-bottom: 0.75rem;
@@ -317,7 +317,7 @@ function HomePage({ onNavigate }) {
         width: 48px;
         height: 48px;
         border-radius: 50%;
-        background: #ff6b00;
+        background: #d63b32;
         color: #000;
         font-size: 1.1rem;
         font-weight: 800;
@@ -386,7 +386,7 @@ function HomePage({ onNavigate }) {
       .hp-footer-logo {
         font-size: 1.1rem;
         font-weight: 700;
-        color: #ff6b00;
+        color: #d63b32;
       }
 
       .hp-footer p {
@@ -406,7 +406,7 @@ function HomePage({ onNavigate }) {
         transition: color 0.2s;
       }
 
-      .hp-footer-links span:hover { color: #ff6b00; }
+      .hp-footer-links span:hover { color: #d63b32; }
 
       .hp-credits {
         border-top: 1px solid #1e1e1e;
@@ -444,13 +444,13 @@ function HomePage({ onNavigate }) {
         justify-content: center;
         font-size: 0.85rem;
         font-weight: 700;
-        color: #ff6b00;
+        color: #d63b32;
         flex-shrink: 0;
         transition: all 0.25s ease;
       }
 
       .hp-credit-person:hover .hp-credit-avatar {
-        background: #ff6b00;
+        background: #d63b32;
         color: #000;
         transform: scale(1.06);
       }
@@ -474,7 +474,7 @@ function HomePage({ onNavigate }) {
         transition: color 0.2s;
       }
 
-      .hp-credit-email:hover { color: #ff6b00; }
+      .hp-credit-email:hover { color: #d63b32; }
 
       .hp-credits-dot {
         width: 4px;
@@ -600,7 +600,7 @@ function HomePage({ onNavigate }) {
         </div>
         <div className="hp-credits-dot" />
         <div className="hp-credit-person">
-          <div className="hp-credit-avatar">RF</div>
+          <div className="hp-credit-avatar">RFT</div>
           <div className="hp-credit-info">
             <span className="hp-credit-name">Rida Fatima Tanvir</span>
             <a className="hp-credit-email" href="mailto:ridafatimat@gmail.com">ridafatimat@gmail.com</a>
