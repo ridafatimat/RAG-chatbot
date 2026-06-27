@@ -6,23 +6,34 @@ html,
 body,
 #root {
   width: 100%;
-  height: 100dvh;
+  min-height: 100%;
   margin: 0;
-  overflow: hidden;
+}
+
+html {
+  background: #000000;
 }
 
 body {
+  min-height: 100dvh;
   font-family: Inter, Arial, sans-serif;
   background: #000000;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#root {
+  min-height: 100dvh;
 }
 
 .app-shell {
-  width: 100vw;
-  height: 100dvh;
+  width: 100%;
+  min-height: 100dvh;
   background: #000000;
   padding: 0;
   margin: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .rag-card {
@@ -339,40 +350,44 @@ body {
 
 .document-panel::-webkit-scrollbar,
 .chat-area::-webkit-scrollbar,
-.preview-message::-webkit-scrollbar {
+.preview-message::-webkit-scrollbar,
+.history-page::-webkit-scrollbar {
   width: 8px;
 }
 
 .document-panel::-webkit-scrollbar-track,
 .chat-area::-webkit-scrollbar-track,
-.preview-message::-webkit-scrollbar-track {
+.preview-message::-webkit-scrollbar-track,
+.history-page::-webkit-scrollbar-track {
   background: #080808;
 }
 
 .document-panel::-webkit-scrollbar-thumb,
 .chat-area::-webkit-scrollbar-thumb,
-.preview-message::-webkit-scrollbar-thumb {
+.preview-message::-webkit-scrollbar-thumb,
+.history-page::-webkit-scrollbar-thumb {
   background: #2a2a2a;
   border-radius: 999px;
 }
 
 .document-panel::-webkit-scrollbar-thumb:hover,
 .chat-area::-webkit-scrollbar-thumb:hover,
-.preview-message::-webkit-scrollbar-thumb:hover {
+.preview-message::-webkit-scrollbar-thumb:hover,
+.history-page::-webkit-scrollbar-thumb:hover {
   background: #3a3a3a;
 }
 
 @media (max-width: 900px) {
   .rag-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;  
-    height: calc(100vh - 96px);    
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 96px);
     overflow: hidden;
   }
 
   .document-panel {
     height: auto;
-    max-height: 280px;             
+    max-height: 280px;
     border-right: none;
     border-bottom: 1px solid #1a1a1a;
     overflow-y: auto;
@@ -381,7 +396,7 @@ body {
   .chat-panel {
     display: flex;
     flex-direction: column;
-    height: 100%;                  
+    height: 100%;
     min-height: 0;
   }
 
@@ -402,7 +417,7 @@ body {
 /* Auth Pages */
 
 .auth-page {
-  width: 100vw;
+  width: 100%;
   min-height: 100vh;
   background: #050505;
   display: flex;
@@ -482,11 +497,14 @@ body {
 
 .dashboard-page,
 .history-page {
-  width: 100vw;
-  min-height: 100vh;
+  width: 100%;
+  min-height: 100dvh;
+  height: auto;
   background: #050505;
   color: white;
   padding: 32px;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .dashboard-header {
@@ -494,6 +512,7 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 34px;
+  gap: 20px;
 }
 
 .dashboard-header h1 {
@@ -589,8 +608,9 @@ body {
 
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 18px;
+  padding-bottom: 70px;
 }
 
 .history-card h2 {
