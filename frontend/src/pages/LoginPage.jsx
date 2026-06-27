@@ -341,7 +341,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
     logoDot: {
       width: "28px",
       height: "28px",
-      background: "#ff6b00",
+      background: "#d63b32",
       borderRadius: "8px",
       display: "flex",
       alignItems: "center",
@@ -391,7 +391,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
     btn: {
       width: "100%",
       padding: "0.85rem",
-      background: "#ff6b00",
+      background: "#d63b32",
       color: "#000",
       border: "none",
       borderRadius: "10px",
@@ -409,7 +409,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       textAlign: "center",
       marginTop: "1.25rem",
       fontSize: "0.85rem",
-      color: "#ff6b00",
+      color: "#d63b32",
       cursor: "pointer",
       fontWeight: "500",
     },
@@ -419,7 +419,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       background: "rgba(255,107,0,0.08)",
       border: "1px solid rgba(255,107,0,0.2)",
       borderRadius: "8px",
-      color: "#ff6b00",
+      color: "#d63b32",
       fontSize: "0.85rem",
       textAlign: "center",
     },
@@ -496,7 +496,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
                 onClick={goToForgot}
                 style={{
                   fontSize: "0.8rem",
-                  color: "#ff6b00",
+                  color: "#d63b32",
                   cursor: "pointer",
                 }}
               >
@@ -521,7 +521,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
               <span
                 onClick={goToRegister}
                 style={{
-                  color: "#ff6b00",
+                  color: "#d63b32",
                   cursor: "pointer",
                   fontWeight: "600",
                 }}
@@ -594,7 +594,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
               <span
                 onClick={goToLogin}
                 style={{
-                  color: "#ff6b00",
+                  color: "#d63b32",
                   cursor: "pointer",
                   fontWeight: "600",
                 }}
@@ -663,7 +663,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
                 onClick={resendOTP}
                 style={{
                   fontSize: "0.8rem",
-                  color: canResend ? "#ff6b00" : "#333",
+                  color: canResend ? "#d63b32" : "#333",
                   cursor: canResend ? "pointer" : "default",
                   fontWeight: "500",
                 }}
