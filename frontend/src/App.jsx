@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./RegisterPage";
+import HomePage from "./pages/HomePage";
 import DashboardPage from "./pages/DashboardPage";
 import UploadPage from "./pages/UploadPage";
 import HistoryPage from "./pages/HistoryPage";
@@ -10,13 +10,15 @@ import ChatPage from "./pages/ChatPage";
 import "./App.css";
 
 const API_BASE_URL = "http://localhost:8000";
+
 function App() {
-  const [page, setPage] = useState("login");
+  const [page, setPage] = useState("home");
   const [user, setUser] = useState(null);
 
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [chatId, setChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [chatOpenError, setChatOpenError] = useState("");
 
   // ---------------- LOGIN RESTORE ----------------
   useEffect(() => {
@@ -32,11 +34,11 @@ function App() {
         setPage("dashboard");
       } else {
         localStorage.removeItem("rag_user");
-        setPage("login");
+        setPage("home");
       }
-    } catch (error) {
+    } catch {
       localStorage.removeItem("rag_user");
-      setPage("login");
+      setPage("home");
     }
   }, []);
 
@@ -44,11 +46,13 @@ function App() {
   const openDocumentChat = async (doc) => {
     if (!user?._id || !doc?.file_id) {
       console.error("Missing user ID or document ID.");
+      setChatOpenError("Could not open chat. Missing user or document details.");
       return;
     }
 
     setSelectedDocument(doc);
     setMessages([]);
+    setChatOpenError("");
 
     try {
       const res = await fetch(
@@ -63,6 +67,7 @@ function App() {
 
       if (!res.ok) {
         console.error("Could not open chat session:", data.detail);
+        setChatOpenError(data.detail || "Could not open chat session.");
         return;
       }
 
@@ -70,19 +75,14 @@ function App() {
       setPage("chat");
     } catch (err) {
       console.error("Chat open error:", err);
+      setChatOpenError("Could not connect to backend.");
     }
   };
 
-  // ---------------- LOGIN / REGISTER ----------------
+  // ---------------- LOGIN ----------------
   const handleLogin = (loggedInUser) => {
     localStorage.setItem("rag_user", JSON.stringify(loggedInUser));
     setUser(loggedInUser);
-    setPage("dashboard");
-  };
-
-  const handleRegister = (registeredUser) => {
-    localStorage.setItem("rag_user", JSON.stringify(registeredUser));
-    setUser(registeredUser);
     setPage("dashboard");
   };
 
@@ -98,31 +98,23 @@ function App() {
     }
 
     localStorage.removeItem("rag_user");
+    localStorage.removeItem("rag_token");
 
     setUser(null);
     setSelectedDocument(null);
     setChatId(null);
     setMessages([]);
-    setPage("login");
+    setChatOpenError("");
+    setPage("home");
   };
 
   // ---------------- ROUTES ----------------
-  if (page === "login") {
-    return (
-      <LoginPage
-        onLogin={handleLogin}
-        goToRegister={() => setPage("register")}
-      />
-    );
+  if (page === "home") {
+    return <HomePage onNavigate={setPage} />;
   }
 
-  if (page === "register") {
-    return (
-      <RegisterPage
-        onRegister={handleRegister}
-        goToLogin={() => setPage("login")}
-      />
-    );
+  if (page === "login" || page === "register") {
+    return <LoginPage initialMode={page} onLogin={handleLogin} />;
   }
 
   if (page === "dashboard") {
@@ -149,11 +141,29 @@ function App() {
 
   if (page === "history") {
     return (
-      <HistoryPage
-        user={user}
-        goBack={() => setPage("dashboard")}
-        openDocumentChat={openDocumentChat}
-      />
+      <>
+        {chatOpenError && (
+          <div
+            style={{
+              background: "#2a1313",
+              color: "#ff6b6b",
+              border: "1px solid #4a1f1f",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              margin: "12px 20px 0",
+              fontSize: "13px",
+            }}
+          >
+            {chatOpenError}
+          </div>
+        )}
+
+        <HistoryPage
+          user={user}
+          goBack={() => setPage("dashboard")}
+          openDocumentChat={openDocumentChat}
+        />
+      </>
     );
   }
 

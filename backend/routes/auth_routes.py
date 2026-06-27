@@ -2,8 +2,9 @@ import os
 import random
 from datetime import timedelta, datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Response, Request
+from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel, EmailStr
+from bson import ObjectId
 
 from services.mongo_service import (
     users_collection,
@@ -13,6 +14,7 @@ from services.auth_service import (
     hash_password,
     verify_password,
     create_access_token,
+    get_current_user,
 )
 from services.rate_limiter import limiter
 from services.email_service import send_otp_email
@@ -57,6 +59,15 @@ class ForgotPasswordRequest(BaseModel):
 class VerifyResetOTPRequest(BaseModel):
     email: EmailStr
     otp: str
+    new_password: str
+
+
+class ChangeNameRequest(BaseModel):
+    name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
     new_password: str
 
 
@@ -413,4 +424,70 @@ def verify_reset_password(
 
     return {
         "message": "Password reset successful"
+    }
+
+
+# -------------------------
+# CHANGE NAME
+# -------------------------
+@router.put("/change-name")
+def change_name(
+    data: ChangeNameRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    new_name = data.name.strip()
+
+    if not new_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Name cannot be empty.",
+        )
+
+    users_collection.update_one(
+        {"_id": ObjectId(current_user["_id"])},
+        {"$set": {"name": new_name}},
+    )
+
+    return {
+        "message": "Name updated successfully",
+        "user": {
+            "_id": current_user["_id"],
+            "name": new_name,
+            "email": current_user["email"],
+        },
+    }
+
+
+# -------------------------
+# CHANGE PASSWORD
+# -------------------------
+@router.put("/change-password")
+def change_password(
+    data: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user = users_collection.find_one({"_id": ObjectId(current_user["_id"])})
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if not verify_password(data.current_password, user["password_hash"]):
+        raise HTTPException(
+            status_code=401,
+            detail="Current password is incorrect.",
+        )
+
+    if len(data.new_password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be at least 6 characters long.",
+        )
+
+    users_collection.update_one(
+        {"_id": ObjectId(current_user["_id"])},
+        {"$set": {"password_hash": hash_password(data.new_password)}},
+    )
+
+    return {
+        "message": "Password changed successfully"
     }
