@@ -1,62 +1,42 @@
 import { useEffect, useState } from "react";
 
+const API_BASE_URL = "http://localhost:8000";
+
 function HistoryPage({ user, goBack, openDocumentChat }) {
   const [documents, setDocuments] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
-
-  const getToken = () => localStorage.getItem("rag_token");
-
   const fetchDocuments = async () => {
-    if (!user?._id) {
-      setMessage("User not found. Please login again.");
-      setLoading(false);
-      return;
-    }
-
-    const token = getToken();
-
-    if (!token) {
-      setMessage("Please login again. Your session is missing.");
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(
-        `${API_BASE_URL}/documents/user/${user._id}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/documents`, {
+        method: "GET",
+        credentials: "include",
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
         setMessage(data.detail || "Could not fetch documents.");
+        setDocuments([]);
         return;
       }
 
       setDocuments(data.documents || []);
     } catch (error) {
       setMessage("Could not connect to backend.");
+      setDocuments([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔥 FIX 1: reload when user changes
   useEffect(() => {
     fetchDocuments();
-  }, [user?._id]);
+  }, []);
 
   return (
     <div className="history-page">
@@ -71,9 +51,9 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
 
       {loading && <p className="history-message">Loading documents...</p>}
 
-      {message && <p className="history-message">{message}</p>}
+      {!loading && message && <p className="history-message">{message}</p>}
 
-      {!loading && documents.length === 0 && (
+      {!loading && !message && documents.length === 0 && (
         <p className="history-message">No documents uploaded yet.</p>
       )}
 
@@ -94,6 +74,10 @@ function HistoryPage({ user, goBack, openDocumentChat }) {
             <p>
               <strong>Characters:</strong>{" "}
               {doc.full_text_length?.toLocaleString()}
+            </p>
+
+            <p>
+              <strong>Chunks:</strong> {doc.chunks_count ?? 0}
             </p>
 
             <p>

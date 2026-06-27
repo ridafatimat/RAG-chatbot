@@ -9,7 +9,7 @@ import ChatPage from "./pages/ChatPage";
 
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://localhost:8000";
 
 function App() {
   const [page, setPage] = useState("home");
@@ -23,9 +23,12 @@ function App() {
   // ---------------- LOGIN RESTORE ----------------
   useEffect(() => {
     const savedUser = localStorage.getItem("rag_user");
+
     if (!savedUser) return;
+
     try {
       const parsedUser = JSON.parse(savedUser);
+
       if (parsedUser?._id && parsedUser?.email) {
         setUser(parsedUser);
         setPage("dashboard");
@@ -43,13 +46,7 @@ function App() {
   const openDocumentChat = async (doc) => {
     if (!user?._id || !doc?.file_id) {
       console.error("Missing user ID or document ID.");
-      return;
-    }
-
-    const token = localStorage.getItem("rag_token");
-
-    if (!token) {
-      setChatOpenError("Please login again. Your session is missing.");
+      setChatOpenError("Could not open chat. Missing user or document details.");
       return;
     }
 
@@ -62,9 +59,7 @@ function App() {
         `${API_BASE_URL}/chat/session?document_id=${doc.file_id}`,
         {
           method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: "include",
         }
       );
 
@@ -92,13 +87,24 @@ function App() {
   };
 
   // ---------------- LOGOUT ----------------
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+
     localStorage.removeItem("rag_user");
     localStorage.removeItem("rag_token");
+
     setUser(null);
     setSelectedDocument(null);
     setChatId(null);
     setMessages([]);
+    setChatOpenError("");
     setPage("home");
   };
 
@@ -151,6 +157,7 @@ function App() {
             {chatOpenError}
           </div>
         )}
+
         <HistoryPage
           user={user}
           goBack={() => setPage("dashboard")}

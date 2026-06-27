@@ -17,23 +17,18 @@ client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 
 # -----------------------------
-# COLLECTIONS (EXISTING)
+# COLLECTIONS
 # -----------------------------
 users_collection = db["users"]
 documents_collection = db["documents"]
 chat_sessions_collection = db["chat_sessions"]
 chat_messages_collection = db["chat_messages"]
-
-# -----------------------------
-# NEW: EMAIL OTP VERIFICATION COLLECTION
-# -----------------------------
 email_verifications_collection = db["email_verifications"]
 
 
 # -----------------------------
 # HELPERS
 # -----------------------------
-
 def format_document(document):
     if not document:
         return None
@@ -67,7 +62,6 @@ def format_chat_session(session):
 # -----------------------------
 # USERS
 # -----------------------------
-
 def get_user_by_email(email: str):
     user = users_collection.find_one({"email": email})
 
@@ -81,37 +75,50 @@ def get_user_by_email(email: str):
     }
 
 
-# =========================================================
-# NEW OTP / EMAIL VERIFICATION HELPERS
-# =========================================================
-
-def save_email_verification(name, email, password_hash, otp, expires_at):
-    """
-    Save temporary OTP record before user is created
-    """
-
+# -----------------------------
+# EMAIL OTP VERIFICATION HELPERS
+# -----------------------------
+def save_email_verification(
+    name: str,
+    email: str,
+    password_hash: str,
+    otp: str,
+    expires_at,
+    purpose: str = "register",
+):
     record = {
         "name": name,
         "email": email,
         "password_hash": password_hash,
         "otp": otp,
         "expires_at": expires_at,
+        "purpose": purpose,
         "created_at": datetime.now(timezone.utc),
     }
 
     email_verifications_collection.insert_one(record)
 
 
-def get_email_verification(email: str):
-    return email_verifications_collection.find_one({"email": email})
+def get_email_verification(email: str, purpose: str | None = None):
+    query = {"email": email}
+
+    if purpose:
+        query["purpose"] = purpose
+
+    return email_verifications_collection.find_one(query)
 
 
-def delete_email_verification(email: str):
-    email_verifications_collection.delete_one({"email": email})
+def delete_email_verification(email: str, purpose: str | None = None):
+    query = {"email": email}
+
+    if purpose:
+        query["purpose"] = purpose
+
+    email_verifications_collection.delete_one(query)
 
 
 # -----------------------------
-# DOCUMENTS (UNCHANGED)
+# DOCUMENTS
 # -----------------------------
 def save_document_metadata(
     file_id: str,
@@ -144,15 +151,6 @@ def save_document_metadata(
     return document
 
 
-def get_all_documents():
-    documents = []
-
-    for document in documents_collection.find().sort("upload_date", -1):
-        documents.append(format_document(document))
-
-    return documents
-
-
 def get_documents_by_user(user_id: str):
     documents = []
 
@@ -164,26 +162,13 @@ def get_documents_by_user(user_id: str):
     return documents
 
 
-def get_document_by_id(document_id: str):
-    document = documents_collection.find_one({"file_id": document_id})
-
-    if not document:
-        try:
-            document = documents_collection.find_one({"_id": ObjectId(document_id)})
-        except Exception:
-            return None
-
-    if not document:
-        return None
-
-    return format_document(document)
-
-
 def get_document_by_file_id_for_user(file_id: str, user_id: str):
-    document = documents_collection.find_one({
-        "file_id": file_id,
-        "user_id": str(user_id),
-    })
+    document = documents_collection.find_one(
+        {
+            "file_id": file_id,
+            "user_id": str(user_id),
+        }
+    )
 
     if not document:
         return None
@@ -191,16 +176,58 @@ def get_document_by_file_id_for_user(file_id: str, user_id: str):
     return format_document(document)
 
 
+def get_document_by_id_for_user(document_id: str, user_id: str):
+    document = documents_collection.find_one(
+        {
+            "file_id": document_id,
+            "user_id": str(user_id),
+        }
+    )
+
+    if document:
+        return format_document(document)
+
+    try:
+        document = documents_collection.find_one(
+            {
+                "_id": ObjectId(document_id),
+                "user_id": str(user_id),
+            }
+        )
+    except Exception:
+        return None
+
+    if not document:
+        return None
+
+    return format_document(document)
+
+
+def get_all_documents():
+    """
+    Internal/debug only.
+    Do not expose this directly in public routes.
+    """
+    documents = []
+
+    for document in documents_collection.find().sort("upload_date", -1):
+        documents.append(format_document(document))
+
+    return documents
+
+
 # -----------------------------
-# CHAT SESSIONS (UNCHANGED)
+# CHAT SESSIONS
 # -----------------------------
-def get_or_create_chat_session(user_id, document_id, title=None):
+def get_or_create_chat_session(user_id: str, document_id: str, title: str = None):
     user_id = str(user_id)
 
-    existing = chat_sessions_collection.find_one({
-        "user_id": user_id,
-        "document_id": document_id,
-    })
+    existing = chat_sessions_collection.find_one(
+        {
+            "user_id": user_id,
+            "document_id": document_id,
+        }
+    )
 
     if existing:
         return format_chat_session(existing)
@@ -213,13 +240,14 @@ def get_or_create_chat_session(user_id, document_id, title=None):
     }
 
     result = chat_sessions_collection.insert_one(session)
+
     session["_id"] = str(result.inserted_id)
     session["created_at"] = session["created_at"].isoformat()
 
     return session
 
 
-def get_user_chat_sessions(user_id):
+def get_user_chat_sessions(user_id: str):
     sessions = chat_sessions_collection.find(
         {"user_id": str(user_id)}
     ).sort("created_at", -1)
@@ -227,24 +255,28 @@ def get_user_chat_sessions(user_id):
     result = []
 
     for session in sessions:
-        result.append({
-            "_id": str(session["_id"]),
-            "title": session.get("title", "New Chat"),
-            "document_id": session.get("document_id"),
-            "created_at": session["created_at"].isoformat()
-            if session.get("created_at")
-            else None,
-        })
+        result.append(
+            {
+                "_id": str(session["_id"]),
+                "title": session.get("title", "New Chat"),
+                "document_id": session.get("document_id"),
+                "created_at": session["created_at"].isoformat()
+                if session.get("created_at")
+                else None,
+            }
+        )
 
     return result
 
 
 def get_chat_session_by_id_for_user(chat_id: str, user_id: str):
     try:
-        chat = chat_sessions_collection.find_one({
-            "_id": ObjectId(chat_id),
-            "user_id": str(user_id),
-        })
+        chat = chat_sessions_collection.find_one(
+            {
+                "_id": ObjectId(chat_id),
+                "user_id": str(user_id),
+            }
+        )
     except Exception:
         return None
 
@@ -255,13 +287,13 @@ def get_chat_session_by_id_for_user(chat_id: str, user_id: str):
 
 
 # -----------------------------
-# CHAT MESSAGES (UNCHANGED)
+# CHAT MESSAGES
 # -----------------------------
 def save_chat_message(
-    chat_id,
-    role,
-    message,
-    answer_type="plain",
+    chat_id: str,
+    role: str,
+    message: str,
+    answer_type: str = "plain",
     structured_answer=None,
 ):
     msg = {
@@ -276,7 +308,7 @@ def save_chat_message(
     chat_messages_collection.insert_one(msg)
 
 
-def get_chat_messages(chat_id):
+def get_chat_messages(chat_id: str):
     messages = chat_messages_collection.find(
         {"chat_id": str(chat_id)}
     ).sort("timestamp", 1)
@@ -284,15 +316,17 @@ def get_chat_messages(chat_id):
     result = []
 
     for message in messages:
-        result.append({
-            "role": message.get("role"),
-            "message": message.get("content") or message.get("message"),
-            "answer_type": message.get("answer_type", "plain"),
-            "structured_answer": message.get("structured_answer"),
-            "timestamp": message["timestamp"].isoformat()
-            if message.get("timestamp")
-            else None,
-        })
+        result.append(
+            {
+                "role": message.get("role"),
+                "message": message.get("message"),
+                "answer_type": message.get("answer_type", "plain"),
+                "structured_answer": message.get("structured_answer"),
+                "timestamp": message["timestamp"].isoformat()
+                if message.get("timestamp")
+                else None,
+            }
+        )
 
     return result
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function LoginPage({ onLogin, initialMode = "login" }) {
   const [mode, setMode] = useState(initialMode);
@@ -20,21 +20,40 @@ function LoginPage({ onLogin, initialMode = "login" }) {
 
   const intervalRef = useRef(null);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
   const resetAll = () => {
-    setName(""); setEmail(""); setPassword("");
-    setConfirmPassword(""); setOtp(""); setNewPassword(""); setMessage("");
+    setName("");
+    setEmail("");
+    setPassword("");
+    setConfirmPassword("");
+    setOtp("");
+    setNewPassword("");
+    setMessage("");
   };
 
-  const goToLogin = () => { setMode("login"); resetAll(); };
-  const goToRegister = () => { setMode("register"); resetAll(); };
-  const goToForgot = () => { setMode("forgot"); resetAll(); };
+  const goToLogin = () => {
+    setMode("login");
+    resetAll();
+  };
+
+  const goToRegister = () => {
+    setMode("register");
+    resetAll();
+  };
+
+  const goToForgot = () => {
+    setMode("forgot");
+    resetAll();
+  };
 
   const startTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
+
     setTimer(60);
     setCanResend(false);
+
     intervalRef.current = setInterval(() => {
       setTimer((prev) => {
         if (prev <= 1) {
@@ -43,6 +62,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
           setCanResend(true);
           return 0;
         }
+
         return prev - 1;
       });
     }, 1000);
@@ -50,102 +70,233 @@ function LoginPage({ onLogin, initialMode = "login" }) {
 
   useEffect(() => {
     if (mode === "otp") startTimer();
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [mode]);
 
   const handleLogin = async () => {
-    setLoading(true); setMessage("Logging in...");
+    setLoading(true);
+    setMessage("Logging in...");
+
     try {
       const res = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
+
       const data = await res.json();
-      if (!res.ok) { setMessage(data?.detail || "Login failed"); return; }
-      localStorage.setItem("rag_token", data.access_token);
+
+      if (!res.ok) {
+        setMessage(data?.detail || "Login failed");
+        return;
+      }
+
       localStorage.setItem("rag_user", JSON.stringify(data.user));
       setMessage("Login successful!");
       onLogin?.(data.user);
-    } catch { setMessage("Server error"); }
-    finally { setLoading(false); }
+    } catch {
+      setMessage("Server error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async () => {
-    if (password !== confirmPassword) { setMessage("Passwords do not match"); return; }
-    setMode("otp"); setOtpMode("register");
-    setLoading(true); setMessage("Sending verification code...");
+    if (!name.trim()) {
+      setMessage("Name is required");
+      return;
+    }
+
+    if (!email.trim()) {
+      setMessage("Email is required");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setMessage("Passwords do not match");
+      return;
+    }
+
+    setMode("otp");
+    setOtpMode("register");
+    setLoading(true);
+    setMessage("Sending verification code...");
+
     try {
       const res = await fetch(`${API_BASE_URL}/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email: email.trim().toLowerCase(), password }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
+
       const data = await res.json();
-      if (!res.ok) { setMessage(data?.detail || "Registration failed"); setMode("register"); return; }
+
+      if (!res.ok) {
+        setMessage(data?.detail || "Registration failed");
+        setMode("register");
+        return;
+      }
+
       setMessage("Verification code sent to your email");
       startTimer();
-    } catch { setMessage("Server error"); setMode("register"); }
-    finally { setLoading(false); }
+    } catch {
+      setMessage("Server error");
+      setMode("register");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = async () => {
-    setLoading(true); setMessage("Sending reset code...");
+    if (!email.trim()) {
+      setMessage("Email is required");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Sending reset code...");
+
     try {
       const res = await fetch(`${API_BASE_URL}/forgot-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+        }),
       });
+
       const data = await res.json();
-      if (!res.ok) { setMessage(data?.detail || "Failed"); return; }
-      setOtpMode("reset"); setMode("otp");
+
+      if (!res.ok) {
+        setMessage(data?.detail || "Failed to send reset code");
+        return;
+      }
+
+      setOtpMode("reset");
+      setMode("otp");
       setMessage("Password reset code sent to your email");
       startTimer();
-    } catch { setMessage("Server error"); }
-    finally { setLoading(false); }
+    } catch {
+      setMessage("Server error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVerifyOTP = async () => {
-    setLoading(true); setMessage("Verifying...");
+    if (!otp.trim()) {
+      setMessage("Please enter the verification code");
+      return;
+    }
+
+    if (otpMode === "reset" && !newPassword.trim()) {
+      setMessage("Please enter your new password");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Verifying...");
+
     try {
-      const endpoint = otpMode === "reset" ? "/verify-reset-password" : "/verify-email";
-      const body = otpMode === "reset"
-        ? { email: email.trim().toLowerCase(), otp, new_password: newPassword }
-        : { email: email.trim().toLowerCase(), otp };
+      const endpoint =
+        otpMode === "reset" ? "/verify-reset-password" : "/verify-email";
+
+      const body =
+        otpMode === "reset"
+          ? {
+              email: email.trim().toLowerCase(),
+              otp: otp.trim(),
+              new_password: newPassword,
+            }
+          : {
+              email: email.trim().toLowerCase(),
+              otp: otp.trim(),
+            };
+
       const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       });
+
       const data = await res.json();
-      if (!res.ok) { setMessage(data?.detail || "Failed"); return; }
+
+      if (!res.ok) {
+        setMessage(data?.detail || "Verification failed");
+        return;
+      }
+
       if (otpMode === "reset") {
-        setMessage("Password reset successful!"); setMode("login");
+        setMessage("Password reset successful! Please login.");
+        setMode("login");
+        setOtp("");
+        setNewPassword("");
+        setPassword("");
       } else {
-        localStorage.setItem("rag_token", data.access_token);
         localStorage.setItem("rag_user", JSON.stringify(data.user));
         setMessage("Account verified!");
         onLogin?.(data.user);
       }
-    } catch { setMessage("Server error"); }
-    finally { setLoading(false); }
+    } catch {
+      setMessage("Server error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resendOTP = async () => {
     if (!canResend) return;
-    setLoading(true); setMessage("Resending code...");
+
+    setLoading(true);
+    setMessage("Resending code...");
+
     try {
       const res = await fetch(`${API_BASE_URL}/resend-otp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+        }),
       });
+
       const data = await res.json();
-      if (res.ok) { setMessage("Code resent successfully"); startTimer(); }
-      else { setMessage(data?.detail || "Failed to resend"); }
-    } catch { setMessage("Server error"); }
-    finally { setLoading(false); }
+
+      if (res.ok) {
+        setMessage("Code resent successfully");
+        startTimer();
+      } else {
+        setMessage(data?.detail || "Failed to resend code");
+      }
+    } catch {
+      setMessage("Server error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const styles = {
@@ -167,7 +318,8 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       transform: "translate(-50%, -60%)",
       width: "600px",
       height: "600px",
-      background: "radial-gradient(circle, rgba(255,107,0,0.08) 0%, transparent 70%)",
+      background:
+        "radial-gradient(circle, rgba(255,107,0,0.08) 0%, transparent 70%)",
       pointerEvents: "none",
     },
     card: {
@@ -215,6 +367,7 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       fontSize: "0.875rem",
       color: "#555",
       marginBottom: "2rem",
+      lineHeight: "1.5",
     },
     label: {
       display: "block",
@@ -233,7 +386,6 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       color: "#fff",
       fontSize: "0.9rem",
       outline: "none",
-      transition: "border-color 0.2s",
       boxSizing: "border-box",
     },
     btn: {
@@ -247,20 +399,10 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       fontWeight: "700",
       cursor: "pointer",
       marginTop: "1.5rem",
-      transition: "background 0.2s, transform 0.15s",
     },
-    btnSecondary: {
-      width: "100%",
-      padding: "0.75rem",
-      background: "transparent",
-      color: "#555",
-      border: "1px solid #222",
-      borderRadius: "10px",
-      fontSize: "0.875rem",
-      fontWeight: "500",
-      cursor: "pointer",
-      marginTop: "0.75rem",
-      transition: "border-color 0.2s, color 0.2s",
+    divider: {
+      borderTop: "1px solid #1e1e1e",
+      margin: "1.5rem 0",
     },
     link: {
       display: "block",
@@ -270,10 +412,6 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       color: "#ff6b00",
       cursor: "pointer",
       fontWeight: "500",
-    },
-    divider: {
-      borderTop: "1px solid #1e1e1e",
-      margin: "1.5rem 0",
     },
     msgSuccess: {
       marginTop: "1rem",
@@ -312,26 +450,25 @@ function LoginPage({ onLogin, initialMode = "login" }) {
     },
   };
 
-  const isError = message && (
-    message.toLowerCase().includes("fail") ||
-    message.toLowerCase().includes("error") ||
-    message.toLowerCase().includes("match") ||
-    message.toLowerCase().includes("invalid") ||
-    message.toLowerCase().includes("wrong")
-  );
+  const isError =
+    message &&
+    (message.toLowerCase().includes("fail") ||
+      message.toLowerCase().includes("error") ||
+      message.toLowerCase().includes("match") ||
+      message.toLowerCase().includes("invalid") ||
+      message.toLowerCase().includes("wrong") ||
+      message.toLowerCase().includes("required"));
 
   return (
     <div style={styles.page}>
       <div style={styles.glow} />
-      <div style={styles.card}>
 
-        {/* LOGO */}
+      <div style={styles.card}>
         <div style={styles.logoRow}>
           <div style={styles.logoDot}>R</div>
           <span style={styles.logoText}>RAG Assistant</span>
         </div>
 
-        {/* LOGIN */}
         {mode === "login" && (
           <>
             <h2 style={styles.heading}>Welcome back</h2>
@@ -355,69 +492,125 @@ function LoginPage({ onLogin, initialMode = "login" }) {
             />
 
             <div style={{ textAlign: "right", marginTop: "0.5rem" }}>
-              <span onClick={goToForgot} style={{ fontSize: "0.8rem", color: "#ff6b00", cursor: "pointer" }}>
+              <span
+                onClick={goToForgot}
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#ff6b00",
+                  cursor: "pointer",
+                }}
+              >
                 Forgot password?
               </span>
             </div>
 
-            <button
-              style={styles.btn}
-              onClick={handleLogin}
-              disabled={loading}
-            >
+            <button style={styles.btn} onClick={handleLogin} disabled={loading}>
               {loading ? "Signing in..." : "Sign In"}
             </button>
 
             <div style={styles.divider} />
 
-            <p style={{ textAlign: "center", fontSize: "0.85rem", color: "#555" }}>
+            <p
+              style={{
+                textAlign: "center",
+                fontSize: "0.85rem",
+                color: "#555",
+              }}
+            >
               Don't have an account?{" "}
-              <span onClick={goToRegister} style={{ color: "#ff6b00", cursor: "pointer", fontWeight: "600" }}>
+              <span
+                onClick={goToRegister}
+                style={{
+                  color: "#ff6b00",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
                 Create one
               </span>
             </p>
           </>
         )}
 
-        {/* REGISTER */}
         {mode === "register" && (
           <>
             <h2 style={styles.heading}>Create account</h2>
-            <p style={styles.subheading}>Start chatting with your documents today</p>
+            <p style={styles.subheading}>
+              Start chatting with your documents today
+            </p>
 
             <label style={styles.label}>Full Name</label>
-            <input style={styles.input} placeholder="Easha Javed" value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              style={styles.input}
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
 
             <label style={styles.label}>Email</label>
-            <input style={styles.input} placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input
+              style={styles.input}
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
             <label style={styles.label}>Password</label>
-            <input style={styles.input} type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input
+              style={styles.input}
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
 
             <label style={styles.label}>Confirm Password</label>
-            <input style={styles.input} type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            <input
+              style={styles.input}
+              type="password"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
 
-            <button style={styles.btn} onClick={handleRegister} disabled={loading}>
+            <button
+              style={styles.btn}
+              onClick={handleRegister}
+              disabled={loading}
+            >
               {loading ? "Creating account..." : "Create Account"}
             </button>
 
             <div style={styles.divider} />
 
-            <p style={{ textAlign: "center", fontSize: "0.85rem", color: "#555" }}>
+            <p
+              style={{
+                textAlign: "center",
+                fontSize: "0.85rem",
+                color: "#555",
+              }}
+            >
               Already have an account?{" "}
-              <span onClick={goToLogin} style={{ color: "#ff6b00", cursor: "pointer", fontWeight: "600" }}>
+              <span
+                onClick={goToLogin}
+                style={{
+                  color: "#ff6b00",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
                 Sign in
               </span>
             </p>
           </>
         )}
 
-        {/* OTP */}
         {mode === "otp" && (
           <>
             <h2 style={styles.heading}>
               {otpMode === "reset" ? "Reset password" : "Verify email"}
             </h2>
+
             <p style={styles.subheading}>
               {otpMode === "reset"
                 ? "Enter the code sent to your email and set a new password"
@@ -447,14 +640,25 @@ function LoginPage({ onLogin, initialMode = "login" }) {
 
             <p style={styles.otpNote}>Code is valid for 5 minutes</p>
 
-            <button style={styles.btn} onClick={handleVerifyOTP} disabled={loading}>
-              {loading ? "Verifying..." : otpMode === "reset" ? "Reset Password" : "Verify Account"}
+            <button
+              style={styles.btn}
+              onClick={handleVerifyOTP}
+              disabled={loading}
+            >
+              {loading
+                ? "Verifying..."
+                : otpMode === "reset"
+                ? "Reset Password"
+                : "Verify Account"}
             </button>
 
             <div style={styles.timerRow}>
               <span style={styles.timerText}>
-                {canResend ? "Didn't receive it?" : `Resend available in ${timer}s`}
+                {canResend
+                  ? "Didn't receive it?"
+                  : `Resend available in ${timer}s`}
               </span>
+
               <span
                 onClick={resendOTP}
                 style={{
@@ -467,14 +671,19 @@ function LoginPage({ onLogin, initialMode = "login" }) {
                 Resend code
               </span>
             </div>
+
+            <span onClick={goToLogin} style={styles.link}>
+              ← Back to sign in
+            </span>
           </>
         )}
 
-        {/* FORGOT PASSWORD */}
         {mode === "forgot" && (
           <>
             <h2 style={styles.heading}>Forgot password?</h2>
-            <p style={styles.subheading}>Enter your email and we'll send you a reset code</p>
+            <p style={styles.subheading}>
+              Enter your email and we'll send you a reset code
+            </p>
 
             <label style={styles.label}>Email</label>
             <input
@@ -484,11 +693,17 @@ function LoginPage({ onLogin, initialMode = "login" }) {
               onChange={(e) => setEmail(e.target.value)}
             />
 
-            <button style={styles.btn} onClick={handleForgotPassword} disabled={loading}>
+            <button
+              style={styles.btn}
+              onClick={handleForgotPassword}
+              disabled={loading}
+            >
               {loading ? "Sending..." : "Send Reset Code"}
             </button>
 
-            <span onClick={goToLogin} style={styles.link}>← Back to sign in</span>
+            <span onClick={goToLogin} style={styles.link}>
+              ← Back to sign in
+            </span>
           </>
         )}
 
@@ -497,7 +712,6 @@ function LoginPage({ onLogin, initialMode = "login" }) {
             {message}
           </div>
         )}
-
       </div>
     </div>
   );
