@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 
+import certifi
 from bson import ObjectId
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -13,7 +14,13 @@ DATABASE_NAME = os.getenv("DATABASE_NAME", "rag_db")
 if not MONGO_URI:
     raise ValueError("MONGO_URI is missing. Please add it to backend/.env")
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(
+    MONGO_URI,
+    tls=True,
+    tlsCAFile=certifi.where(),
+    serverSelectionTimeoutMS=30000,
+)
+
 db = client[DATABASE_NAME]
 
 # -----------------------------
