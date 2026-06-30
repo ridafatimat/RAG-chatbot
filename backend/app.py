@@ -17,11 +17,31 @@ except ImportError:
     chat_router = None
 
 
-app = FastAPI(
-    title="RAG Chatbot Backend",
-    description="Backend API for the RAG chatbot project",
-    version="1.0.0",
-)
+# -----------------------------
+# ENVIRONMENT CONFIG
+# -----------------------------
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+
+# -----------------------------
+# FASTAPI APP CONFIG
+# -----------------------------
+if ENVIRONMENT == "production":
+    app = FastAPI(
+        title="RAG Chatbot Backend",
+        description="Backend API for the RAG chatbot project",
+        version="1.0.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+else:
+    app = FastAPI(
+        title="RAG Chatbot Backend",
+        description="Backend API for the RAG chatbot project",
+        version="1.0.0",
+    )
+
 
 # -----------------------------
 # RATE LIMITER CONFIG
@@ -29,6 +49,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
 
 # -----------------------------
 # CORS CONFIG
@@ -48,6 +69,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
 
 # -----------------------------
 # SECURITY HEADERS

@@ -23,6 +23,34 @@ router = APIRouter()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+FAST_MODEL = "llama-3.1-8b-instant"
+SMART_MODEL = "llama-3.3-70b-versatile"
+
+
+def select_answer_model(intent: str) -> str:
+    """
+    Use cheaper/faster model for simple document Q&A.
+    Use smarter model only for complex structured generation.
+    """
+    smart_intents = {
+        "followup_answers",
+        "short_qa",
+        "long_qa",
+        "mcq",
+        "fill_blanks",
+        "true_false",
+        "flashcard",
+        "chart",
+        "table",
+        "comparison",
+        "timeline",
+    }
+
+    if intent in smart_intents:
+        return SMART_MODEL
+
+    return FAST_MODEL
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -54,7 +82,8 @@ Rules:
 - Preserve the user's exact intent.
 - Preserve requested length exactly, for example "1-2 lines", "one paragraph", "5 bullet points".
 - Preserve follow-up meaning, for example "now tell their answers", "explain these", "convert above into table".
-- Preserve requested format exactly, for example MCQs, flashcards, chart, table, summary, Q&A.
+- Preserve requested format exactly, for example MCQs, flashcards, chart, table, summary, Q&A, questions.
+- If user says "banao", "bana do", "generate karo", translate as "create" or "generate".
 - If already English, return the improved English version only.
 - Return ONLY the English version.
 - Do not add explanation.
@@ -63,7 +92,7 @@ User message:
 {question}
 """
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=FAST_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
@@ -71,6 +100,21 @@ User message:
         return translated if translated else question
     except Exception:
         return question
+
+
+def extract_count_from_text(text: str, default: int = 5) -> int:
+    """
+    Extract number of items requested by user.
+    Example: "5 qs" -> 5, "3 questions" -> 3
+    """
+    match = re.search(
+        r"(\d+)\s*(qs|q|questions?|mcqs?|items?|sawal|sawalat|blanks?|flashcards?)",
+        text.lower(),
+    )
+    if match:
+        return int(match.group(1))
+
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -87,54 +131,93 @@ def detect_intent(text: str) -> str:
     if any(k in t for k in [
         "pie chart", "bar chart", "line chart", "chart", "graph",
         "visualize", "visualise", "represent through chart",
-        "represent karo", "chart k zariye", "chart ke zariye"
+        "represent karo", "chart k zariye", "chart ke zariye",
     ]):
         return "chart"
 
     if any(k in t for k in [
         "answers to these", "answer these", "tell their answers",
         "tell me their answers", "now tell their answers",
-        "in ke answers", "inke answers", "answers batao"
+        "in ke answers", "inke answers", "answers batao", "answer them",
+        "their answers", "these answers", "un ke answers", "unke answers",
+        "inke jawab", "in ke jawab", "jawab batao",
     ]):
         return "followup_answers"
 
-    if any(k in t for k in ["true false", "true/false", "true or false", "t/f", "truefalse"]):
+    if any(k in t for k in [
+        "true false", "true/false", "true or false", "t/f", "truefalse",
+    ]):
         return "true_false"
 
-    if any(k in t for k in ["fill in the blank", "fill blank", "fill-in", "blanks", "fill in blank"]):
+    if any(k in t for k in [
+        "fill in the blank", "fill blank", "fill-in", "blanks", "fill in blank",
+    ]):
         return "fill_blanks"
 
-    if any(k in t for k in ["mcq", "mcqs", "multiple choice", "multiple-choice"]):
+    if any(k in t for k in [
+        "mcq", "mcqs", "multiple choice", "multiple-choice",
+    ]):
         return "mcq"
 
-    if any(k in t for k in ["flashcard", "flash card", "flashcards"]):
+    if any(k in t for k in [
+        "flashcard", "flash card", "flashcards",
+    ]):
         return "flashcard"
 
-    if any(k in t for k in ["summary", "summarize", "summarise", "summarization", "tldr", "tl;dr"]):
+    if any(k in t for k in [
+        "summary", "summarize", "summarise", "summarization", "tldr", "tl;dr",
+    ]):
         return "summary"
 
-    if any(k in t for k in ["comparison", "compare", "vs", "versus", "difference between"]):
-        return "comparison"
-
-    if any(k in t for k in ["timeline", "chronological", "sequence of events", "in order"]):
-        return "timeline"
-
-    if any(k in t for k in ["checklist", "check list", "to-do", "todo list", "steps"]):
-        return "checklist"
-
-    if any(k in t for k in ["table", "tabular", "in a table"]):
-        return "table"
-
-    if any(k in t for k in ["short question", "short questions", "short q", "short qs", "sq"]):
+    if any(k in t for k in [
+        "short question", "short questions", "short q", "short qs", "sq",
+        "proper question", "proper questions", "proper qs", "proper q",
+    ]):
         return "short_qa"
 
-    if any(k in t for k in ["long question", "long questions", "long q", "long qs", "detailed question"]):
+    if any(k in t for k in [
+        "long question", "long questions", "long q", "long qs", "detailed question",
+    ]):
         return "long_qa"
 
-    if any(k in t for k in ["definition", "define", "glossary", "meaning of"]):
+    # Important fix for: "5 qs banao", "abh 5 qs banao", "questions banao"
+    if re.search(r"\d+\s*(qs|q|questions?|sawal|sawalat)", t) or any(k in t for k in [
+        "questions banao", "qs banao", "question banao",
+        "questions bana", "qs bana", "question bana",
+        "sawal banao", "sawalat banao",
+        "generate questions", "create questions", "make questions",
+        "prepare questions",
+    ]):
+        return "short_qa"
+
+    if any(k in t for k in [
+        "comparison", "compare", "vs", "versus", "difference between",
+    ]):
+        return "comparison"
+
+    if any(k in t for k in [
+        "timeline", "chronological", "sequence of events", "in order",
+    ]):
+        return "timeline"
+
+    if any(k in t for k in [
+        "checklist", "check list", "to-do", "todo list", "steps",
+    ]):
+        return "checklist"
+
+    if any(k in t for k in [
+        "table", "tabular", "in a table",
+    ]):
+        return "table"
+
+    if any(k in t for k in [
+        "definition", "define", "glossary", "meaning of",
+    ]):
         return "definition"
 
-    if any(k in t for k in ["code", "snippet", "function", "algorithm", "program"]):
+    if any(k in t for k in [
+        "code", "snippet", "function", "algorithm", "program",
+    ]):
         return "code"
 
     return "generic"
@@ -147,15 +230,23 @@ def detect_length_instruction(text: str) -> str:
     """
     t = text.lower()
 
-    match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)\s*(line|lines|sentence|sentences|paragraph|paragraphs)", t)
+    match = re.search(
+        r"(\d+)\s*[-–to]+\s*(\d+)\s*(line|lines|sentence|sentences|paragraph|paragraphs)",
+        t,
+    )
     if match:
         return f"Answer in exactly {match.group(1)}-{match.group(2)} {match.group(3)}."
 
-    match = re.search(r"(\d+)\s*(line|lines|sentence|sentences|paragraph|paragraphs|bullet points|points)", t)
+    match = re.search(
+        r"(\d+)\s*(line|lines|sentence|sentences|paragraph|paragraphs|bullet points|points)",
+        t,
+    )
     if match:
         return f"Answer in exactly {match.group(1)} {match.group(2)}."
 
-    if any(k in t for k in ["brief", "briefly", "short", "concise", "very short"]):
+    if any(k in t for k in [
+        "brief", "briefly", "short", "concise", "very short",
+    ]):
         return "Keep the answer brief and concise."
 
     return "Follow the user's requested length. If no length is requested, use a clear helpful length."
@@ -175,6 +266,7 @@ def build_recent_chat_history(chat_id: str, limit: int = 8) -> str:
         recent_messages = messages[-limit:]
 
         formatted = []
+
         for msg in recent_messages:
             role = msg.get("role", "unknown")
             message = msg.get("message", "")
@@ -218,9 +310,9 @@ def build_prompt_for_intent(
     original_question: str,
     english_question: str,
 ) -> str:
-
     length_rule = detect_length_instruction(original_question + " " + english_question)
     not_found_json = get_not_found_json()
+    count = extract_count_from_text(original_question + " " + english_question)
 
     base_rules = f"""
 You are a strict document-based RAG assistant.
@@ -245,6 +337,7 @@ IMPORTANT:
 - Examples are NOT document facts. Do not copy examples as answers.
 - If user asks "from this document", all content must come from Document Context.
 - If user asks a follow-up like "now tell their answers", use Recent Chat History to identify what "their" refers to, then answer using Document Context.
+- When generating questions, MCQs, blanks, flashcards, or quiz content, create the actual content. Do not describe the task.
 
 Document Context:
 {context}
@@ -259,7 +352,6 @@ English Version:
 {english_question}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "summary":
         return base_rules + f"""
 TASK:
@@ -286,19 +378,17 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "mcq":
         return base_rules + f"""
 TASK:
-Generate MCQs only from the document.
+Generate exactly {count} MCQs only from the document.
 
 STRICT MCQ RULES:
 - Each MCQ must be based on an explicit document fact.
 - Do NOT ask about concepts not present in the document.
-- Do NOT use generic RAG/AI examples unless they are actually in the document.
+- Do NOT use generic examples unless they are actually in the document.
 - Each MCQ must have exactly 4 options: A, B, C, D.
 - The answer must be the full correct option.
-- Generate the number of MCQs requested by the user. If no number is requested, generate 5.
 
 Return JSON:
 {{
@@ -323,17 +413,15 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "flashcard":
         return base_rules + f"""
 TASK:
-Generate flashcards from important document points.
+Generate exactly {count} flashcards from important document points.
 
 STRICT FLASHCARD RULES:
 - Only use terms, tasks, goals, features, dates, or facts that appear in the document.
 - Do NOT create flashcards about general concepts unless the document explains them.
 - Keep each answer concise.
-- Generate the number requested by the user. If no number is requested, generate 6.
 
 Return JSON:
 {{
@@ -352,7 +440,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "followup_answers":
         return base_rules + f"""
 TASK:
@@ -392,15 +479,14 @@ If there are no previous questions in Recent Chat History, return:
 }}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "chart":
         return base_rules + f"""
 TASK:
 Represent document information as chart-ready data.
 
 STRICT CHART RULES:
-- If the user asks for a pie chart, provide labels and numeric values.
-- Values should be based on reasonable counts from the document context, such as number of tasks, features, sections, or mentions.
+- Provide labels and numeric values if possible.
+- Values should be based on reasonable counts from the document context.
 - Do NOT pretend an actual image chart was created.
 - Do NOT provide random percentages unless you can derive them from the document context.
 - Include a short explanation of what the values represent.
@@ -429,17 +515,15 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "true_false":
         return base_rules + f"""
 TASK:
-Generate True/False statements from the document.
+Generate exactly {count} True/False statements from the document.
 
 STRICT RULES:
 - Each question must be a declarative statement.
 - The answer must be only "True" or "False".
 - Do NOT use blanks.
-- Generate the number requested by the user. If no number is requested, generate 5.
 
 Return JSON:
 {{
@@ -458,16 +542,14 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "fill_blanks":
         return base_rules + f"""
 TASK:
-Generate fill-in-the-blank questions from the document.
+Generate exactly {count} fill-in-the-blank questions from the document.
 
 STRICT RULES:
 - Replace one key document term with ______.
 - The answer must be the missing word or phrase.
-- Generate the number requested by the user. If no number is requested, generate 5.
 
 Return JSON:
 {{
@@ -486,26 +568,29 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "short_qa":
         return base_rules + f"""
 TASK:
-Generate short question-answer pairs from the document.
+Generate exactly {count} short questions only from the document.
 
 STRICT RULES:
+- Generate questions only.
+- Do NOT provide answers unless the user specifically asks for answers.
 - Questions must be based only on document facts.
-- Answers must be 1-2 sentences.
-- Generate the number requested by the user. If no number is requested, generate 5.
+- Each question should be clear and suitable for testing knowledge.
+- Do NOT just say "Create questions" - actually generate the questions.
 
 Return JSON:
 {{
-  "title": "Short Questions and Answers",
+  "title": "Questions",
   "type": "structured",
   "blocks": [
     {{
-      "block_type": "qa",
-      "question": "Question from document?",
-      "answer": "Short answer from document."
+      "block_type": "numbered_list",
+      "items": [
+        "Question 1 from the document?",
+        "Question 2 from the document?"
+      ]
     }}
   ]
 }}
@@ -514,16 +599,16 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "long_qa":
+        long_count = count if count != 5 else 3
+
         return base_rules + f"""
 TASK:
-Generate detailed question-answer pairs from the document.
+Generate exactly {long_count} detailed question-answer pairs from the document.
 
 STRICT RULES:
 - Questions must be based only on document facts.
 - Answers should be detailed but not invented.
-- Generate the number requested by the user. If no number is requested, generate 3.
 
 Return JSON:
 {{
@@ -542,7 +627,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "table":
         return base_rules + f"""
 TASK:
@@ -567,7 +651,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "comparison":
         return base_rules + f"""
 TASK:
@@ -592,7 +675,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "timeline":
         return base_rules + f"""
 TASK:
@@ -614,7 +696,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "checklist":
         return base_rules + f"""
 TASK:
@@ -636,7 +717,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "definition":
         return base_rules + f"""
 TASK:
@@ -659,7 +739,6 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     if intent == "code":
         return base_rules + f"""
 TASK:
@@ -685,16 +764,17 @@ If not enough context, return:
 {not_found_json}
 """
 
-    # -----------------------------------------------------------------------
     return base_rules + f"""
 TASK:
 Answer the user's request using the most suitable structure.
 
 STRICT GENERIC RULES:
-- If the user asks a direct question, answer directly.
+- If the user asks a direct question, answer directly with facts from the document.
+- If the user asks to generate/create something, create the actual content.
 - If the user asks for a format, follow that format.
 - If the user asks for a short answer, keep it short.
 - Do not add extra sections unless useful or requested.
+- Never respond with meta-commentary like "Create 5 questions".
 
 Allowed block types:
 - paragraph
@@ -727,6 +807,7 @@ If not enough context, return:
 def parse_structured_answer(raw_answer: str):
     try:
         cleaned = raw_answer.strip()
+
         if cleaned.startswith("```"):
             cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
@@ -743,7 +824,6 @@ def parse_structured_answer(raw_answer: str):
 
         data["type"] = "structured"
 
-        # Remove duplicate adjacent heading blocks
         cleaned_blocks = []
         previous_heading = None
 
@@ -753,8 +833,10 @@ def parse_structured_answer(raw_answer: str):
 
             if block.get("block_type") == "heading":
                 current_heading = str(block.get("content", "")).strip().lower()
+
                 if current_heading and current_heading == previous_heading:
                     continue
+
                 previous_heading = current_heading
             else:
                 previous_heading = None
@@ -786,11 +868,13 @@ def is_question_like(text: str) -> bool:
         "kab", "kahan", "kidhar", "kon", "kaun", "kis",
         "batao", "btao", "samjhao", "smjhao", "summary do",
         "explain karo", "samjha do", "bata do", "generate karo",
-        "bana do", "answers", "jawab", "jawaab",
+        "bana do", "banao", "answers", "jawab", "jawaab",
         "کیا", "کیوں", "کیسے", "کب", "کہاں", "کون", "کس", "بتاؤ", "سمجھاؤ",
     ]
+
     if "?" in text:
         return True
+
     return any(word in text for word in question_words)
 
 
@@ -808,16 +892,19 @@ def handle_small_talk(question: str) -> Optional[str]:
         "assalamualaikum", "assalam o alaikum", "assalamu alaikum",
         "السلام علیکم", "سلام",
     ]
+
     thanks_keywords = [
         "thank", "thanks", "thankyou", "thank you", "thx", "ty",
         "shukriya", "shukria", "jazakallah", "jazak allah",
         "جزاک", "شکریہ",
     ]
+
     goodbye_keywords = [
         "bye", "goodbye", "see you", "take care",
         "allah hafiz", "allah hafez", "khuda hafiz", "khuda hafez",
         "اللہ حافظ", "خدا حافظ",
     ]
+
     acknowledgement_phrases = [
         "ok", "okay", "acha", "achha", "theek", "theek hai",
         "haan", "han", "hmm", "got it", "done", "great", "nice",
@@ -869,6 +956,7 @@ def chat(
             file_id=document_id,
             user_id=user_id,
         )
+
         if not document:
             raise HTTPException(
                 status_code=403,
@@ -881,11 +969,13 @@ def chat(
                 chat_id=chat_id,
                 user_id=user_id,
             )
+
             if not existing_chat:
                 raise HTTPException(
                     status_code=403,
                     detail="You do not have access to this chat.",
                 )
+
             if existing_chat.get("document_id") != document_id:
                 raise HTTPException(
                     status_code=403,
@@ -898,6 +988,7 @@ def chat(
                 document_id=document_id,
                 title=question[:40],
             )
+
             chat_id = str(chat_session["_id"])
 
         save_chat_message(
@@ -908,8 +999,8 @@ def chat(
             structured_answer=None,
         )
 
-        # Small talk check
         small_talk_answer = handle_small_talk(question)
+
         if small_talk_answer:
             save_chat_message(
                 chat_id=chat_id,
@@ -918,6 +1009,7 @@ def chat(
                 answer_type="plain",
                 structured_answer=None,
             )
+
             return {
                 "chat_id": chat_id,
                 "question": question,
@@ -926,22 +1018,27 @@ def chat(
                 "structured_answer": None,
                 "context_used": [],
                 "intent": "small_talk",
+                "model_used": None,
                 "language": "English",
             }
 
-        # User can ask in any language, but answer should be English.
         english_question = translate_question_to_english(question)
-
-        # Detect intent from combined original + translated text.
         intent = detect_intent(f"{question} {english_question}")
 
-        # Recent chat history for follow-ups like "now tell their answers"
         chat_history = build_recent_chat_history(chat_id)
 
-        # For follow-up questions, search using current question + recent history
-        # so retrieval has better context.
         retrieval_query = english_question
-        if intent == "followup_answers" and chat_history:
+
+        # Better retrieval for short follow-ups and generation tasks.
+        if intent in [
+            "followup_answers",
+            "short_qa",
+            "long_qa",
+            "mcq",
+            "fill_blanks",
+            "true_false",
+            "flashcard",
+        ] and chat_history:
             retrieval_query = f"{english_question}\n\nRecent chat:\n{chat_history}"
 
         relevant_chunks = search_chunks(
@@ -961,6 +1058,7 @@ def chat(
                     }
                 ],
             }
+
             save_chat_message(
                 chat_id=chat_id,
                 role="assistant",
@@ -968,6 +1066,7 @@ def chat(
                 answer_type="structured",
                 structured_answer=no_context_answer,
             )
+
             return {
                 "chat_id": chat_id,
                 "question": question,
@@ -977,6 +1076,7 @@ def chat(
                 "structured_answer": no_context_answer,
                 "context_used": [],
                 "intent": "document_question_no_context",
+                "model_used": None,
                 "language": "English",
             }
 
@@ -990,10 +1090,12 @@ def chat(
             english_question=english_question,
         )
 
+        answer_model = select_answer_model(intent)
+
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=answer_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
+            temperature=0,
         )
 
         raw_answer = response.choices[0].message.content.strip()
@@ -1003,7 +1105,6 @@ def chat(
             display_answer = structured_answer.get("title", "Generated answer.")
             final_answer_type = "structured"
         else:
-            # Fallback if model ever fails JSON
             display_answer = raw_answer
             final_answer_type = "plain"
 
@@ -1024,11 +1125,13 @@ def chat(
             "structured_answer": structured_answer,
             "context_used": relevant_chunks,
             "intent": intent,
+            "model_used": answer_model,
             "language": "English",
         }
 
     except HTTPException:
         raise
+
     except Exception as error:
         print("CHAT ERROR:", error)
         raise HTTPException(
@@ -1051,6 +1154,7 @@ def get_chat_session(
         file_id=document_id,
         user_id=user_id,
     )
+
     if not document:
         raise HTTPException(
             status_code=403,
@@ -1079,6 +1183,7 @@ def get_chat(
         chat_id=chat_id,
         user_id=user_id,
     )
+
     if not chat:
         raise HTTPException(
             status_code=403,

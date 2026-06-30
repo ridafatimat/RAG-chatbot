@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import StructuredAnswer from "../components/StructuredAnswer";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 const COLORS = {
   bg: "#121212",
   panel: "#1a1a1a",
   border: "#2e2e2e",
-  orange: "#ff7a18",
-  orangeDark: "#e0670a",
+  red: "#e53935",
+  redDark: "#c62828",
   textLight: "#f2f2f2",
   textDim: "#b5b5b5",
   assistantBubble: "#262626",
@@ -170,9 +171,10 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           <div
             className="brand-icon"
             style={{
-              color: COLORS.orange,
+              background: COLORS.red,
+              color: COLORS.textLight,
               fontSize: "20px",
-              border: `1px solid ${COLORS.orange}`,
+              border: `1px solid ${COLORS.red}`,
               borderRadius: "8px",
               width: "34px",
               height: "34px",
@@ -211,10 +213,11 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           onClick={goBack}
           style={{
             background: "transparent",
-            color: COLORS.orange,
-            border: `1px solid ${COLORS.orange}`,
+            color: COLORS.red,
+            border: `1px solid ${COLORS.red}`,
             borderRadius: "8px",
             padding: "8px 16px",
+            fontWeight: 700,
             cursor: "pointer",
           }}
         >
@@ -272,9 +275,13 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
                   padding: "10px 14px",
                   borderRadius: "14px",
                   background:
-                    m.role === "user" ? COLORS.orange : COLORS.assistantBubble,
-                  color: m.role === "user" ? "#1a1a1a" : COLORS.textLight,
-                  fontWeight: m.role === "user" ? 600 : 400,
+                    m.role === "user" ? COLORS.red : COLORS.assistantBubble,
+                  border:
+                    m.role === "assistant"
+                      ? `1px solid ${COLORS.border}`
+                      : "none",
+                  color: COLORS.textLight,
+                  fontWeight: m.role === "user" ? 700 : 400,
                   lineHeight: "1.4",
                   wordBreak: "break-word",
                   display: "inline-block",
@@ -282,7 +289,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
                 }}
               >
                 {m.role === "assistant" ? (
-                  <StructuredAnswer message={m} accentColor={COLORS.orange} />
+                  <StructuredAnswer message={m} accentColor={COLORS.red} />
                 ) : (
                   m.message
                 )}
@@ -303,6 +310,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
                   padding: "10px 14px",
                   borderRadius: "14px",
                   background: COLORS.assistantBubble,
+                  border: `1px solid ${COLORS.border}`,
                   color: COLORS.textDim,
                   fontStyle: "italic",
                 }}
@@ -344,27 +352,27 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
             onClick={sendMessage}
             disabled={loading}
             style={{
-              background: COLORS.orange,
-              color: "#1a1a1a",
+              background: COLORS.red,
+              color: COLORS.textLight,
               border: "none",
               borderRadius: "10px",
               padding: "12px 22px",
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: loading ? "not-allowed" : "pointer",
               opacity: loading ? 0.7 : 1,
             }}
             onMouseDown={(e) => {
               if (!loading) {
-                e.currentTarget.style.background = COLORS.orangeDark;
+                e.currentTarget.style.background = COLORS.redDark;
               }
             }}
             onMouseUp={(e) => {
               if (!loading) {
-                e.currentTarget.style.background = COLORS.orange;
+                e.currentTarget.style.background = COLORS.red;
               }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = COLORS.orange;
+              e.currentTarget.style.background = COLORS.red;
             }}
           >
             Send

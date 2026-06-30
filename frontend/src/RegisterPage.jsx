@@ -8,7 +8,8 @@ function RegisterPage({ onRegister, goToLogin }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE_URL = "http://localhost:8000";
+  const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) {

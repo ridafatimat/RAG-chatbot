@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import StructuredAnswer from "./StructuredAnswer";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
