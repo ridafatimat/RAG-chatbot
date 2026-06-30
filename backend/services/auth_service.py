@@ -37,8 +37,32 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_user(request: Request):
+def get_token_from_request(request: Request) -> str | None:
+    """
+    Production-safe token reader.
+
+    Priority:
+    1. HTTP-only cookie: access_token
+    2. Authorization header: Bearer <token>
+
+    Cookie is preferred because frontend uses credentials: include.
+    Bearer fallback helps if frontend later stores token manually.
+    """
     token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+
+    if token:
+        return token
+
+    authorization = request.headers.get("Authorization")
+
+    if authorization and authorization.startswith("Bearer "):
+        return authorization.replace("Bearer ", "").strip()
+
+    return None
+
+
+def get_current_user(request: Request):
+    token = get_token_from_request(request)
 
     if not token:
         raise HTTPException(
