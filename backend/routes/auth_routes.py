@@ -22,11 +22,17 @@ from services.email_service import send_otp_email
 
 router = APIRouter()
 
-ENV = os.getenv("ENV", "development")
-IS_PRODUCTION = ENV == "production"
+# -------------------------
+# AUTH / COOKIE CONFIG
+# -------------------------
+ENVIRONMENT = os.getenv("ENVIRONMENT", os.getenv("ENV", "development")).lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
 
 ACCESS_TOKEN_COOKIE_NAME = "access_token"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
+COOKIE_SECURE = IS_PRODUCTION
+COOKIE_SAMESITE = "none" if IS_PRODUCTION else "lax"
 
 
 # -------------------------
@@ -72,17 +78,26 @@ class ChangePasswordRequest(BaseModel):
 
 
 # -------------------------
-# COOKIE HELPER
+# COOKIE HELPERS
 # -------------------------
 def set_auth_cookie(response: Response, token: str):
     response.set_cookie(
         key=ACCESS_TOKEN_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=IS_PRODUCTION,
-        samesite="lax",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
+    )
+
+
+def clear_auth_cookie(response: Response):
+    response.delete_cookie(
+        key=ACCESS_TOKEN_COOKIE_NAME,
+        path="/",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
     )
 
 
@@ -113,10 +128,12 @@ def register_user(
     otp = str(random.randint(100000, 999999))
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    pending = email_verifications_collection.find_one({
-        "email": email,
-        "purpose": "register",
-    })
+    pending = email_verifications_collection.find_one(
+        {
+            "email": email,
+            "purpose": "register",
+        }
+    )
 
     verification_data = {
         "name": user.name.strip(),
@@ -196,10 +213,12 @@ def verify_email(
 ):
     email = data.email.lower().strip()
 
-    record = email_verifications_collection.find_one({
-        "email": email,
-        "purpose": "register",
-    })
+    record = email_verifications_collection.find_one(
+        {
+            "email": email,
+            "purpose": "register",
+        }
+    )
 
     if not record:
         raise HTTPException(status_code=400, detail="No OTP found")
@@ -210,10 +229,12 @@ def verify_email(
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     if datetime.now(timezone.utc) > expires_at:
-        email_verifications_collection.delete_one({
-            "email": record["email"],
-            "purpose": "register",
-        })
+        email_verifications_collection.delete_one(
+            {
+                "email": record["email"],
+                "purpose": "register",
+            }
+        )
         raise HTTPException(status_code=400, detail="OTP expired")
 
     if data.otp != record["otp"]:
@@ -221,26 +242,32 @@ def verify_email(
 
     existing_user = users_collection.find_one({"email": record["email"]})
     if existing_user:
-        email_verifications_collection.delete_one({
-            "email": record["email"],
-            "purpose": "register",
-        })
+        email_verifications_collection.delete_one(
+            {
+                "email": record["email"],
+                "purpose": "register",
+            }
+        )
         raise HTTPException(
             status_code=400,
             detail="User already exists. Please login.",
         )
 
-    result = users_collection.insert_one({
-        "name": record["name"],
-        "email": record["email"],
-        "password_hash": record["password_hash"],
-        "created_at": datetime.now(timezone.utc),
-    })
+    result = users_collection.insert_one(
+        {
+            "name": record["name"],
+            "email": record["email"],
+            "password_hash": record["password_hash"],
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
 
-    email_verifications_collection.delete_one({
-        "email": record["email"],
-        "purpose": "register",
-    })
+    email_verifications_collection.delete_one(
+        {
+            "email": record["email"],
+            "purpose": "register",
+        }
+    )
 
     access_token = create_access_token(
         data={
@@ -311,10 +338,7 @@ def login_user(
 # -------------------------
 @router.post("/logout")
 def logout_user(response: Response):
-    response.delete_cookie(
-        key=ACCESS_TOKEN_COOKIE_NAME,
-        path="/",
-    )
+    clear_auth_cookie(response)
 
     return {
         "message": "Logged out successfully"
@@ -340,10 +364,12 @@ def forgot_password(
     otp = str(random.randint(100000, 999999))
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    existing = email_verifications_collection.find_one({
-        "email": email,
-        "purpose": "reset_password",
-    })
+    existing = email_verifications_collection.find_one(
+        {
+            "email": email,
+            "purpose": "reset_password",
+        }
+    )
 
     reset_data = {
         "email": email,
@@ -387,10 +413,12 @@ def verify_reset_password(
             detail="Password must be at least 6 characters long.",
         )
 
-    record = email_verifications_collection.find_one({
-        "email": email,
-        "purpose": "reset_password",
-    })
+    record = email_verifications_collection.find_one(
+        {
+            "email": email,
+            "purpose": "reset_password",
+        }
+    )
 
     if not record:
         raise HTTPException(status_code=400, detail="No OTP found")
@@ -401,10 +429,12 @@ def verify_reset_password(
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     if datetime.now(timezone.utc) > expires_at:
-        email_verifications_collection.delete_one({
-            "email": record["email"],
-            "purpose": "reset_password",
-        })
+        email_verifications_collection.delete_one(
+            {
+                "email": record["email"],
+                "purpose": "reset_password",
+            }
+        )
         raise HTTPException(status_code=400, detail="OTP expired")
 
     if data.otp != record["otp"]:
@@ -417,10 +447,12 @@ def verify_reset_password(
         {"$set": {"password_hash": hashed_password}},
     )
 
-    email_verifications_collection.delete_one({
-        "email": record["email"],
-        "purpose": "reset_password",
-    })
+    email_verifications_collection.delete_one(
+        {
+            "email": record["email"],
+            "purpose": "reset_password",
+        }
+    )
 
     return {
         "message": "Password reset successful"
