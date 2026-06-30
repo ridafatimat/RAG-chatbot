@@ -105,3 +105,4 @@ def get_current_user(request: Request):
         "name": user.get("name", ""),
         "email": user.get("email", ""),
     }
+    # Railway redeploy trigger
