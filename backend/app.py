@@ -54,17 +54,22 @@ app.add_middleware(SlowAPIMiddleware)
 # -----------------------------
 # CORS CONFIG
 # -----------------------------
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "https://rag-assistant-chatbot-seven.vercel.app",
+).rstrip("/")
 
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://rag-assistant-chatbot-seven.vercel.app",
     FRONTEND_URL,
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
@@ -85,7 +90,6 @@ async def add_security_headers(request: Request, call_next):
         "camera=(), microphone=(), geolocation=(), payment=()"
     )
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
 
     return response
 
