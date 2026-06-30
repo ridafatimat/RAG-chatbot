@@ -102,6 +102,21 @@ def clear_auth_cookie(response: Response):
 
 
 # -------------------------
+# DEBUG (TEMPORARY - REMOVE AFTER FIXING)
+# -------------------------
+@router.get("/debug-env")
+def debug_env():
+    return {
+        "raw_ENVIRONMENT": os.getenv("ENVIRONMENT"),
+        "raw_ENV": os.getenv("ENV"),
+        "computed_ENVIRONMENT": ENVIRONMENT,
+        "IS_PRODUCTION": IS_PRODUCTION,
+        "COOKIE_SECURE": COOKIE_SECURE,
+        "COOKIE_SAMESITE": COOKIE_SAMESITE,
+    }
+
+
+# -------------------------
 # REGISTER (SEND OTP)
 # -------------------------
 @router.post("/register")
