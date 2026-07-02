@@ -7,22 +7,14 @@ from services.embedding_service import get_embedding
 load_dotenv()
 
 CHROMA_API_KEY = os.getenv("CHROMA_API_KEY")
-CHROMA_TENANT = os.getenv("CHROMA_TENANT")
-CHROMA_DATABASE = os.getenv("CHROMA_DATABASE")
 
 if not CHROMA_API_KEY:
     raise RuntimeError("Missing CHROMA_API_KEY environment variable")
 
-if not CHROMA_TENANT:
-    raise RuntimeError("Missing CHROMA_TENANT environment variable")
-
-if not CHROMA_DATABASE:
-    raise RuntimeError("Missing CHROMA_DATABASE environment variable")
-
+# For a single-database scoped API key, Chroma Cloud can auto-resolve
+# the correct tenant and database from the API key.
 client = chromadb.CloudClient(
-    api_key=CHROMA_API_KEY,
-    tenant=CHROMA_TENANT,
-    database=CHROMA_DATABASE,
+    api_key=CHROMA_API_KEY
 )
 
 collection = client.get_or_create_collection(name="documents")
