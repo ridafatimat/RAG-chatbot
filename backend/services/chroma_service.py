@@ -7,16 +7,43 @@ from services.embedding_service import get_embedding
 load_dotenv()
 
 CHROMA_API_KEY = os.getenv("CHROMA_API_KEY")
+CHROMA_TENANT = os.getenv("CHROMA_TENANT")
+CHROMA_DATABASE = os.getenv("CHROMA_DATABASE")
 
-if not CHROMA_API_KEY:
-    raise RuntimeError("Missing CHROMA_API_KEY environment variable")
+# Railway/local fallback path
+CHROMA_PATH = os.getenv("CHROMA_PATH", "/tmp/chroma_db")
 
-# For a single-database scoped API key, Chroma Cloud can auto-resolve
-# the correct tenant and database from the API key.
-client = chromadb.CloudClient(
-    api_key=CHROMA_API_KEY
-)
 
+def get_chroma_client():
+    """
+    Try Chroma Cloud first.
+    If Chroma Cloud credentials fail, fall back to local Chroma
+    so the backend does not crash on Railway.
+    """
+
+    if CHROMA_API_KEY and CHROMA_TENANT and CHROMA_DATABASE:
+        try:
+            print("Trying Chroma Cloud connection...")
+
+            return chromadb.CloudClient(
+                api_key=CHROMA_API_KEY.strip(),
+                tenant=CHROMA_TENANT.strip(),
+                database=CHROMA_DATABASE.strip(),
+            )
+
+        except Exception as e:
+            print("Chroma Cloud connection failed.")
+            print(f"Reason: {e}")
+            print("Falling back to local Chroma storage...")
+
+    else:
+        print("Chroma Cloud env variables missing.")
+        print("Using local Chroma storage...")
+
+    return chromadb.PersistentClient(path=CHROMA_PATH)
+
+
+client = get_chroma_client()
 collection = client.get_or_create_collection(name="documents")
 
 
