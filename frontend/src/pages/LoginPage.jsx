@@ -308,7 +308,8 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       fontFamily: "'Inter', 'Segoe UI', sans-serif",
       padding: "1.5rem",
       position: "relative",
-      overflow: "hidden",
+      overflowY: "auto",
+      overflowX: "hidden",
     },
     glow: {
       position: "absolute",
