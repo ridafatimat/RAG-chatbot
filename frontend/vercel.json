@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://rag-assistant-chatbot-production.up.railway.app/:path*"
+    }
+  ]
+}
