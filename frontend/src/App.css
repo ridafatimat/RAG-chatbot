@@ -402,11 +402,13 @@ body {
 /* Auth Pages */
 
 .auth-page {
+  position: fixed;
+  inset: 0;
   width: 100%;
-  min-height: 100vh;
+  height: 100dvh;
   background: #050505;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 32px;
   overflow-y: auto;
