@@ -1,27 +1,29 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 
-GMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.getenv("EMAIL_PASSWORD")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+SENDER_EMAIL = os.getenv("EMAIL_ADDRESS")  # ragchatbot1234@gmail.com
+
 
 def send_otp_email(email: str, otp: str):
     try:
-        msg = MIMEMultipart()
-        msg["From"] = f"RAG Assistant <{GMAIL_ADDRESS}>"
-        msg["To"] = email
-        msg["Subject"] = "RAG Chatbot Verification"
-
-        body = f"Your OTP is: {otp}\nIt expires in 5 minutes."
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_ADDRESS, email, msg.as_string())
-
-        print("EMAIL SENT to", email)
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "accept": "application/json",
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+            },
+            json={
+                "sender": {"name": "RAG Assistant", "email": SENDER_EMAIL},
+                "to": [{"email": email}],
+                "subject": "RAG Chatbot Verification",
+                "textContent": f"Your OTP is: {otp}\nIt expires in 5 minutes.",
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        print("EMAIL SENT to", email, response.json())
     except Exception as e:
         print("EMAIL FAILED:", str(e))
         raise
