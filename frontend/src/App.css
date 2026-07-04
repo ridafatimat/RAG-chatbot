@@ -6,7 +6,6 @@ html,
 body,
 #root {
   width: 100%;
-  height: 100%;
   min-height: 100%;
   margin: 0;
 }
@@ -19,13 +18,14 @@ body {
   min-height: 100dvh;
   font-family: Inter, Arial, sans-serif;
   background: #000000;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root {
-  height: 100dvh;
   min-height: 100dvh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app-shell {
@@ -358,7 +358,6 @@ body {
   font-weight: 900;
 }
 
-/* Disclaimer line should stay only under input, not create page-level scroll */
 .chat-panel > p,
 .chat-disclaimer {
   flex-shrink: 0;
@@ -373,21 +372,24 @@ body {
 .document-panel::-webkit-scrollbar,
 .chat-area::-webkit-scrollbar,
 .preview-message::-webkit-scrollbar,
-.history-page::-webkit-scrollbar {
+.history-page::-webkit-scrollbar,
+.auth-page::-webkit-scrollbar {
   width: 8px;
 }
 
 .document-panel::-webkit-scrollbar-track,
 .chat-area::-webkit-scrollbar-track,
 .preview-message::-webkit-scrollbar-track,
-.history-page::-webkit-scrollbar-track {
+.history-page::-webkit-scrollbar-track,
+.auth-page::-webkit-scrollbar-track {
   background: #080808;
 }
 
 .document-panel::-webkit-scrollbar-thumb,
 .chat-area::-webkit-scrollbar-thumb,
 .preview-message::-webkit-scrollbar-thumb,
-.history-page::-webkit-scrollbar-thumb {
+.history-page::-webkit-scrollbar-thumb,
+.auth-page::-webkit-scrollbar-thumb {
   background: #2a2a2a;
   border-radius: 999px;
 }
@@ -395,32 +397,35 @@ body {
 .document-panel::-webkit-scrollbar-thumb:hover,
 .chat-area::-webkit-scrollbar-thumb:hover,
 .preview-message::-webkit-scrollbar-thumb:hover,
-.history-page::-webkit-scrollbar-thumb:hover {
+.history-page::-webkit-scrollbar-thumb:hover,
+.auth-page::-webkit-scrollbar-thumb:hover {
   background: #3a3a3a;
 }
 
 /* Auth Pages */
 
 .auth-page {
-  position: fixed;
-  inset: 0;
   width: 100%;
-  height: 100dvh;
+  min-height: 100dvh;
   background: #050505;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 32px;
+  padding-bottom: 80px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
 .auth-card {
   width: 430px;
+  max-width: 100%;
   background: #111111;
   border: 1px solid #242424;
   border-radius: 18px;
   padding: 34px;
   color: white;
+  margin: 0 auto;
 }
 
 .auth-icon {
@@ -706,8 +711,14 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .auth-page {
+    padding: 24px 16px;
+    padding-bottom: 90px;
+  }
+
   .auth-card {
     width: 100%;
+    padding: 26px;
   }
 
   .dashboard-header {
@@ -716,6 +727,7 @@ body {
     gap: 16px;
   }
 }
+
 /* Remove duplicate language disclaimer that appears outside the RAG card */
 .app-shell > p:last-child {
   display: none;
