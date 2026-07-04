@@ -2,6 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import StructuredAnswer from "./StructuredAnswer";
 
 const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
+const UPLOAD_URL = import.meta.env.PROD
+  ? "https://rag-assistant-chatbot-production.up.railway.app"
+  : "http://localhost:8000";
 
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
@@ -47,7 +50,7 @@ function UploadBox({ user }) {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const response = await fetch(`${UPLOAD_URL}/upload`, {
         method: "POST",
         credentials: "include",
         body: formData,
