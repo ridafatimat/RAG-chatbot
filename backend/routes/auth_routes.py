@@ -295,6 +295,7 @@ def verify_email(
 
     return {
         "message": "Account verified successfully",
+        "access_token": access_token,
         "user": {
             "_id": str(result.inserted_id),
             "name": record["name"],
@@ -340,6 +341,7 @@ def login_user(
 
     return {
         "message": "Login successful",
+        "access_token": access_token,
         "user": {
             "_id": str(existing_user["_id"]),
             "name": existing_user.get("name", ""),

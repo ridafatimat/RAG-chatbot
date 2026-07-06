@@ -3,6 +3,15 @@ import StructuredAnswer from "./StructuredAnswer";
 
 const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
 
+// Uploads go straight to Railway (bypassing the Vercel rewrite proxy),
+// because the proxy has a body-size/timeout limit that breaks larger
+// file uploads. We authenticate this direct cross-origin request with
+// a Bearer token instead of the cookie, since cross-origin cookies are
+// unreliable in some browsers anyway.
+const DIRECT_BACKEND_URL = import.meta.env.PROD
+  ? "https://rag-assistant-chatbot-production.up.railway.app"
+  : "http://localhost:8000";
+
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
@@ -43,13 +52,16 @@ function UploadBox({ user }) {
     const formData = new FormData();
     formData.append("file", file);
 
+    const token = localStorage.getItem("rag_token");
+
     try {
       setLoading(true);
       setMessage("");
 
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const response = await fetch(`${DIRECT_BACKEND_URL}/upload`, {
         method: "POST",
         credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
 
