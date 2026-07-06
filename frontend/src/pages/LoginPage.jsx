@@ -100,14 +100,6 @@ function LoginPage({ onLogin, initialMode = "login" }) {
       }
 
       localStorage.setItem("rag_user", JSON.stringify(data.user));
-
-      // Store the token so requests that must bypass the Vercel proxy
-      // (e.g. file uploads, which go straight to Railway) can still
-      // authenticate using an Authorization header instead of the cookie.
-      if (data.access_token) {
-        localStorage.setItem("rag_token", data.access_token);
-      }
-
       setMessage("Login successful!");
       onLogin?.(data.user);
     } catch {
@@ -263,11 +255,6 @@ function LoginPage({ onLogin, initialMode = "login" }) {
         setPassword("");
       } else {
         localStorage.setItem("rag_user", JSON.stringify(data.user));
-
-        if (data.access_token) {
-          localStorage.setItem("rag_token", data.access_token);
-        }
-
         setMessage("Account verified!");
         onLogin?.(data.user);
       }
