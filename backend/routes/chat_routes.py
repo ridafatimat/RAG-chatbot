@@ -106,13 +106,35 @@ def extract_count_from_text(text: str, default: int = 5) -> int:
     """
     Extract number of items requested by user.
     Example: "5 qs" -> 5, "3 questions" -> 3
+    Also handles cases where words sit between the number and the
+    keyword, e.g. "3 fill in the blanks", "3 true false".
     """
+    t = text.lower()
+
+    # Preferred: number directly attached to a known keyword.
     match = re.search(
-        r"(\d+)\s*(qs|q|questions?|mcqs?|items?|sawal|sawalat|blanks?|flashcards?)",
-        text.lower(),
+        r"(\d+)\s*(qs|q|questions?|mcqs?|items?|sawal|sawalat|blanks?|"
+        r"flashcards?|points?|statements?|pairs?)",
+        t,
     )
     if match:
         return int(match.group(1))
+
+    # Fallback: number followed within a few words by a generation keyword
+    # (covers "3 fill in the blanks", "3 true false", "generate 3 main points").
+    match = re.search(
+        r"(\d+)\s+(?:\w+\s+){0,4}?"
+        r"(blanks?|true|false|mcqs?|questions?|flashcards?|points?|statements?)",
+        t,
+    )
+    if match:
+        return int(match.group(1))
+
+    # Last resort: just grab the first standalone number in a short request.
+    if len(t.split()) <= 12:
+        match = re.search(r"\b(\d+)\b", t)
+        if match:
+            return int(match.group(1))
 
     return default
 
@@ -168,6 +190,12 @@ def detect_intent(text: str) -> str:
         "summary", "summarize", "summarise", "summarization", "tldr", "tl;dr",
     ]):
         return "summary"
+
+    if any(k in t for k in [
+        "main points", "key points", "important points", "highlights",
+        "key highlights", "main takeaways", "key takeaways",
+    ]):
+        return "key_points"
 
     if any(k in t for k in [
         "short question", "short questions", "short q", "short qs", "sq",
@@ -374,6 +402,36 @@ Return JSON:
     {{
       "block_type": "paragraph",
       "content": "The summary here, following the exact requested length."
+    }}
+  ]
+}}
+
+If not enough context, return:
+{not_found_json}
+"""
+
+    if intent == "key_points":
+        return base_rules + f"""
+TASK:
+Extract exactly {count} main/key points from the document.
+
+STRICT RULES:
+- Each item must be a complete, standalone sentence or phrase with real content.
+- Never return an empty bullet or placeholder.
+- Base every point strictly on document facts.
+
+Return JSON:
+{{
+  "title": "Key Points",
+  "type": "structured",
+  "blocks": [
+    {{
+      "block_type": "numbered_list",
+      "items": [
+        "First key point written out in full.",
+        "Second key point written out in full.",
+        "Third key point written out in full."
+      ]
     }}
   ]
 }}
