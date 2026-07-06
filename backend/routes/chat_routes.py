@@ -332,6 +332,10 @@ ABSOLUTE RULES:
 - No markdown.
 - No backticks.
 - No explanation outside JSON.
+- CRITICAL: Inside any JSON string value, never insert a literal line break.
+  If you need a new line within a string, use the escape sequence \\n instead
+  of an actual newline character. All output must be a single valid JSON
+  object parsable by a strict JSON parser.
 
 IMPORTANT:
 - Examples are NOT document facts. Do not copy examples as answers.
@@ -811,7 +815,17 @@ def parse_structured_answer(raw_answer: str):
         if cleaned.startswith("```"):
             cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
-        data = json.loads(cleaned)
+        # The model sometimes emits a literal newline character inside a
+        # JSON string value (e.g. inside "content": "...") instead of the
+        # properly escaped "\n" sequence. Standard strict JSON parsing
+        # rejects raw control characters inside strings, which previously
+        # caused json.loads to raise and made us silently fall back to
+        # showing the raw JSON text to the user. strict=False tells the
+        # parser to tolerate these control characters instead of failing.
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            data = json.loads(cleaned, strict=False)
 
         if not isinstance(data, dict):
             return None
