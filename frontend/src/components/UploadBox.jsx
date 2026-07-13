@@ -210,7 +210,7 @@ function UploadBox({ user }) {
             <span className="file-types">
               {uploadedDoc
                 ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
-                : "PDF, TXT, DOCX, PPTX, CSV, XLSX supported"}
+                : "PDF, TXT, DOCX, PPTX, CSV, XLSX, JPG, JPEG, PNG supported"}
             </span>
           </label>
 
@@ -293,6 +293,7 @@ function UploadBox({ user }) {
           <p className="chat-disclaimer">
             You can write your question in any language. RAG Assistant will
             answer in English only.
+            OCR support is currently limited to scanned PDFs and standalone images.
           </p>
         </main>
       </div>
