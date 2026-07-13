@@ -3,6 +3,21 @@ import StructuredAnswer from "./StructuredAnswer";
 
 const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
 
+async function readApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const responseText = await response.text();
+  const preview = responseText.replace(/\s+/g, " ").trim().slice(0, 180);
+
+  throw new Error(
+    `Backend returned ${response.status}${preview ? `: ${preview}` : ""}`
+  );
+}
+
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
@@ -54,7 +69,7 @@ function UploadBox({ user }) {
         body: formData,
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       if (!response.ok) {
         setMessage(data.detail || "Upload failed.");
@@ -82,7 +97,7 @@ function UploadBox({ user }) {
         }
       );
 
-      const sessionData = await sessionRes.json();
+      const sessionData = await readApiResponse(sessionRes);
 
       if (!sessionRes.ok) {
         setMessage(sessionData.detail || "Could not create chat session.");
@@ -93,7 +108,8 @@ function UploadBox({ user }) {
     } catch (error) {
       console.error("Upload error:", error);
       setMessage(
-        "Could not connect to backend. Please make sure backend is running."
+        error?.message ||
+          "Could not connect to backend. Please make sure backend is running."
       );
     } finally {
       setLoading(false);
@@ -146,7 +162,7 @@ function UploadBox({ user }) {
         }),
       });
 
-      const data = await res.json();
+      const data = await readApiResponse(res);
 
       if (!res.ok) {
         addAssistantError(data.detail || "Something went wrong.");
@@ -199,7 +215,7 @@ function UploadBox({ user }) {
           <label className="drop-zone">
             <input
               type="file"
-              accept=".pdf,.txt,.docx,.pptx,.csv,.xlsx"
+              accept=".pdf,.txt,.docx,.pptx,.csv,.xlsx,.jpg,.jpeg,.png"
               onChange={handleFileChange}
               hidden
             />
@@ -223,6 +239,11 @@ function UploadBox({ user }) {
           </button>
 
           {message && <div className="small-status">{message}</div>}
+
+          <p className="ocr-disclaimer">
+            OCR support is currently limited to scanned PDFs and standalone
+            images.
+          </p>
         </aside>
 
         <main className="chat-panel">
@@ -293,7 +314,6 @@ function UploadBox({ user }) {
           <p className="chat-disclaimer">
             You can write your question in any language. RAG Assistant will
             answer in English only.
-            OCR support is currently limited to scanned PDFs and standalone images.
           </p>
         </main>
       </div>

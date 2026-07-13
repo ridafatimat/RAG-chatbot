@@ -1,33 +1,33 @@
+import os
+import re
+import uuid
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
-import os
-import uuid
-import re
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from services.auth_service import get_current_user
-
-from services.document_service import (
-    extract_text_from_document,
-    is_supported_file,
-    get_file_extension,
-    SUPPORTED_EXTENSIONS,
-)
-
-from services.mongo_service import (
-    save_document_metadata,
-    get_documents_by_user,
-    get_document_by_file_id_for_user,
-)
-
+from services.chroma_service import delete_document_chunks, store_chunks
 from services.chunk_service import chunk_text
-from services.chroma_service import store_chunks
+from services.document_service import (
+    DocumentExtractionError,
+    OCRUnavailableError,
+    SUPPORTED_EXTENSIONS,
+    extract_text_from_document,
+    get_file_extension,
+    is_supported_file,
+)
+from services.mongo_service import (
+    get_document_by_file_id_for_user,
+    get_documents_by_user,
+    save_document_metadata,
+)
 from services.rate_limiter import limiter
+
 
 router = APIRouter()
 
 UPLOAD_FOLDER = "uploads"
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def sanitize_filename(filename: str) -> str:
@@ -37,17 +37,36 @@ def sanitize_filename(filename: str) -> str:
     return filename
 
 
+def format_supported_extensions() -> str:
+    return ", ".join(extension.lstrip(".").upper() for extension in SUPPORTED_EXTENSIONS)
+
+
+def remove_file_safely(file_path: str) -> None:
+    if not file_path or not os.path.exists(file_path):
+        return
+
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
+
+def remove_chunks_safely(document_id: str, user_id: str) -> None:
+    """Best-effort cleanup if processing fails after Chroma storage."""
+    try:
+        delete_document_chunks(
+            document_id=document_id,
+            user_id=user_id,
+        )
+    except Exception as cleanup_error:
+        print("CHROMA CLEANUP ERROR:", cleanup_error)
+
+
 def flatten_extracted_text(extracted_content: Any) -> str:
     """
-    Convert structured extraction output into one plain-text string.
-
-    The updated document_service may return:
-    - a plain string, or
-    - a list of source sections such as PDF pages, PPTX slides,
-      DOCX paragraphs, or spreadsheet row groups.
-
-    This helper is used only for document preview and text-length metadata.
-    Citation metadata remains attached to the chunks themselves.
+    Convert structured extraction output into one plain-text string for the
+    MongoDB preview and text-length fields. Citation metadata remains attached
+    to chunks and is not flattened.
     """
     if isinstance(extracted_content, str):
         return extracted_content.strip()
@@ -67,7 +86,7 @@ def flatten_extracted_text(extracted_content: Any) -> str:
             or []
         )
 
-        parts = []
+        parts: List[str] = []
 
         if isinstance(direct_text, str) and direct_text.strip():
             parts.append(direct_text.strip())
@@ -92,27 +111,40 @@ def flatten_extracted_text(extracted_content: Any) -> str:
     return ""
 
 
+def extraction_uses_ocr(extracted_content: Any) -> bool:
+    """Return True when at least one extracted source section used OCR."""
+    if isinstance(extracted_content, list):
+        return any(extraction_uses_ocr(item) for item in extracted_content)
+
+    if not isinstance(extracted_content, dict):
+        return False
+
+    metadata = extracted_content.get("metadata")
+
+    if isinstance(metadata, dict) and metadata.get("ocr_used") is True:
+        return True
+
+    nested_sections = (
+        extracted_content.get("sections")
+        or extracted_content.get("pages")
+        or extracted_content.get("slides")
+        or extracted_content.get("sheets")
+        or []
+    )
+
+    return extraction_uses_ocr(nested_sections) if nested_sections else False
+
+
 def normalize_chunks_for_storage(
     chunks: List[Any],
     file_name: str,
     file_extension: str,
 ) -> List[Dict[str, Any]]:
     """
-    Normalize chunk_service output into citation-aware chunk objects.
+    Normalize chunk-service output into citation-aware chunk objects.
 
-    Expected final structure:
-    {
-        "text": "chunk content",
-        "metadata": {
-            "chunk_index": 0,
-            "source_type": "pdf",
-            "source_label": "Page 1",
-            "page_number": 1
-        }
-    }
-
-    Plain string chunks are accepted temporarily and receive a chunk-level
-    fallback citation until detailed service-layer extraction is added.
+    Plain strings remain supported as a fallback, while structured chunks keep
+    page, slide, sheet, paragraph, table, image, and OCR metadata.
     """
     normalized_chunks: List[Dict[str, Any]] = []
 
@@ -124,11 +156,19 @@ def normalize_chunks_for_storage(
         "sheet_name",
         "row_start",
         "row_end",
+        "line_start",
+        "line_end",
         "paragraph_start",
         "paragraph_end",
+        "table_number",
+        "table_row_start",
+        "table_row_end",
+        "image_number",
+        "extraction_method",
+        "ocr_used",
     )
 
-    for index, chunk in enumerate(chunks):
+    for chunk in chunks:
         if isinstance(chunk, str):
             text = chunk.strip()
             metadata: Dict[str, Any] = {}
@@ -141,7 +181,6 @@ def normalize_chunks_for_storage(
 
             metadata = dict(chunk.get("metadata") or {})
 
-            # Accept citation fields at the top level as well.
             for field in metadata_fields:
                 if field in chunk and field not in metadata:
                     metadata[field] = chunk.get(field)
@@ -151,56 +190,80 @@ def normalize_chunks_for_storage(
         if not text:
             continue
 
-        metadata.setdefault("chunk_index", len(normalized_chunks))
-        metadata.setdefault("source_type", file_extension)
+        chunk_index = len(normalized_chunks)
+        metadata.setdefault("chunk_index", chunk_index)
+        metadata.setdefault(
+            "source_type",
+            file_extension.lstrip(".") or "document",
+        )
         metadata.setdefault("file_name", file_name)
 
         if not metadata.get("source_label"):
-            if metadata.get("page_number") not in (None, ""):
-                metadata["source_label"] = (
-                    f"Page {metadata['page_number']}"
-                )
-            elif metadata.get("slide_number") not in (None, ""):
-                metadata["source_label"] = (
-                    f"Slide {metadata['slide_number']}"
-                )
-            elif metadata.get("sheet_name"):
-                row_start = metadata.get("row_start")
-                row_end = metadata.get("row_end")
+            page_number = metadata.get("page_number")
+            slide_number = metadata.get("slide_number")
+            sheet_name = metadata.get("sheet_name")
+            row_start = metadata.get("row_start")
+            row_end = metadata.get("row_end")
+            line_start = metadata.get("line_start")
+            line_end = metadata.get("line_end")
+            paragraph_start = metadata.get("paragraph_start")
+            paragraph_end = metadata.get("paragraph_end")
+            table_number = metadata.get("table_number")
+            table_row_start = metadata.get("table_row_start")
+            table_row_end = metadata.get("table_row_end")
+            image_number = metadata.get("image_number")
 
+            if page_number not in (None, ""):
+                metadata["source_label"] = f"Page {page_number}"
+            elif slide_number not in (None, ""):
+                metadata["source_label"] = f"Slide {slide_number}"
+            elif image_number not in (None, ""):
+                metadata["source_label"] = (
+                    "Image"
+                    if str(image_number) == "1"
+                    else f"Image {image_number}"
+                )
+            elif sheet_name:
                 if row_start not in (None, "") and row_end not in (None, ""):
-                    metadata["source_label"] = (
-                        f'Sheet "{metadata["sheet_name"]}", '
-                        f"Rows {row_start}-{row_end}"
-                    )
+                    if str(row_start) == str(row_end):
+                        metadata["source_label"] = (
+                            f'Sheet "{sheet_name}", Row {row_start}'
+                        )
+                    else:
+                        metadata["source_label"] = (
+                            f'Sheet "{sheet_name}", Rows {row_start}-{row_end}'
+                        )
                 elif row_start not in (None, ""):
                     metadata["source_label"] = (
-                        f'Sheet "{metadata["sheet_name"]}", '
-                        f"Row {row_start}"
+                        f'Sheet "{sheet_name}", Row {row_start}'
                     )
                 else:
-                    metadata["source_label"] = (
-                        f'Sheet "{metadata["sheet_name"]}"'
-                    )
-            elif metadata.get("paragraph_start") not in (None, ""):
-                paragraph_start = metadata.get("paragraph_start")
-                paragraph_end = metadata.get("paragraph_end")
-
-                if (
-                    paragraph_end not in (None, "")
-                    and str(paragraph_start) != str(paragraph_end)
-                ):
-                    metadata["source_label"] = (
-                        f"Paragraphs {paragraph_start}-{paragraph_end}"
-                    )
-                else:
-                    metadata["source_label"] = (
-                        f"Paragraph {paragraph_start}"
-                    )
-            else:
+                    metadata["source_label"] = f'Sheet "{sheet_name}"'
+            elif line_start not in (None, ""):
                 metadata["source_label"] = (
-                    f"Chunk {len(normalized_chunks) + 1}"
+                    f"Line {line_start}"
+                    if line_end in (None, "") or str(line_start) == str(line_end)
+                    else f"Lines {line_start}-{line_end}"
                 )
+            elif paragraph_start not in (None, ""):
+                metadata["source_label"] = (
+                    f"Paragraph {paragraph_start}"
+                    if paragraph_end in (None, "")
+                    or str(paragraph_start) == str(paragraph_end)
+                    else f"Paragraphs {paragraph_start}-{paragraph_end}"
+                )
+            elif table_number not in (None, "") and table_row_start not in (None, ""):
+                metadata["source_label"] = (
+                    f"Table {table_number}, Row {table_row_start}"
+                    if table_row_end in (None, "")
+                    or str(table_row_start) == str(table_row_end)
+                    else (
+                        f"Table {table_number}, Rows "
+                        f"{table_row_start}-{table_row_end}"
+                    )
+                )
+            else:
+                metadata["source_label"] = f"Chunk {chunk_index + 1}"
 
         normalized_chunks.append(
             {
@@ -214,7 +277,7 @@ def normalize_chunks_for_storage(
 
 @router.post("/upload")
 @limiter.limit("10/minute")
-async def upload_document(
+def upload_document(
     request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
@@ -225,13 +288,16 @@ async def upload_document(
     user_id = current_user["_id"]
 
     if not is_supported_file(file.filename):
-        allowed_types = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Allowed file types are: {allowed_types}",
+            detail=(
+                "Unsupported file type. Allowed file types are: "
+                f"{format_supported_extensions()}."
+            ),
         )
 
-    content = await file.read()
+    file.file.seek(0)
+    content = file.file.read()
 
     if not content:
         raise HTTPException(
@@ -249,22 +315,22 @@ async def upload_document(
 
     file_id = str(uuid.uuid4())
     file_extension = get_file_extension(file.filename)
-
     safe_file_name = sanitize_filename(file.filename)
 
     if not safe_file_name:
-        safe_file_name = f"document.{file_extension}"
+        safe_file_name = f"document{file_extension}"
 
     saved_file_name = f"{file_id}_{safe_file_name}"
     file_path = os.path.join(UPLOAD_FOLDER, saved_file_name)
+    chunks_stored = False
 
     try:
         with open(file_path, "wb") as saved_file:
             saved_file.write(content)
 
         extracted_content = extract_text_from_document(
-            file_path,
-            file.filename,
+            file_path=file_path,
+            file_name=file.filename,
         )
 
         extracted_text = flatten_extracted_text(extracted_content)
@@ -272,11 +338,10 @@ async def upload_document(
         if not extracted_text:
             raise HTTPException(
                 status_code=400,
-                detail="Could not extract readable text from this document.",
+                detail="Could not extract readable text from this file.",
             )
 
         raw_chunks = chunk_text(extracted_content)
-
         normalized_chunks = normalize_chunks_for_storage(
             chunks=raw_chunks,
             file_name=file.filename,
@@ -286,14 +351,23 @@ async def upload_document(
         if not normalized_chunks:
             raise HTTPException(
                 status_code=400,
-                detail="Could not split this document into searchable chunks.",
+                detail="Could not split this file into searchable chunks.",
             )
 
-        store_chunks(
+        stored_count = store_chunks(
             document_id=file_id,
             user_id=user_id,
             chunks=normalized_chunks,
         )
+
+        if stored_count <= 0:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not store searchable chunks for this file.",
+            )
+
+        chunks_stored = True
+        ocr_used = extraction_uses_ocr(extracted_content)
 
         document_metadata = save_document_metadata(
             file_id=file_id,
@@ -308,39 +382,56 @@ async def upload_document(
 
         return {
             "message": (
-                "Document uploaded, processed, and stored in the RAG "
-                "system successfully."
+                "File uploaded, OCR-processed, and stored in the RAG system "
+                "successfully."
+                if ocr_used
+                else (
+                    "Document uploaded, processed, and stored in the RAG "
+                    "system successfully."
+                )
             ),
             "document": document_metadata,
             "text_preview": extracted_text[:500],
             "full_text_length": len(extracted_text),
             "chunks_count": len(normalized_chunks),
             "citation_ready": True,
+            "ocr_used": ocr_used,
         }
 
     except HTTPException:
-        # Remove an unusable upload so failed processing does not leave
-        # orphaned files on the server.
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except OSError:
-                pass
-
+        if chunks_stored:
+            remove_chunks_safely(file_id, user_id)
+        remove_file_safely(file_path)
         raise
+
+    except OCRUnavailableError as error:
+        print("OCR CONFIGURATION ERROR:", error)
+        if chunks_stored:
+            remove_chunks_safely(file_id, user_id)
+        remove_file_safely(file_path)
+        raise HTTPException(
+            status_code=503,
+            detail=str(error),
+        )
+
+    except DocumentExtractionError as error:
+        print("DOCUMENT EXTRACTION ERROR:", error)
+        if chunks_stored:
+            remove_chunks_safely(file_id, user_id)
+        remove_file_safely(file_path)
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
     except Exception as error:
         print("UPLOAD ERROR:", error)
-
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except OSError:
-                pass
-
+        if chunks_stored:
+            remove_chunks_safely(file_id, user_id)
+        remove_file_safely(file_path)
         raise HTTPException(
             status_code=500,
-            detail="Something went wrong while processing the document.",
+            detail="Something went wrong while processing the file.",
         )
 
 

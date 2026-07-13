@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 import chromadb
 from dotenv import load_dotenv
 
-from services.embedding_service import get_embedding
+from services.embedding_service import get_embedding, get_embeddings
 
 
 load_dotenv()
@@ -57,10 +57,7 @@ def _clean_text(value: Any) -> str:
 
 
 def _to_chroma_metadata(metadata: Dict[str, Any]) -> Dict[str, MetadataValue]:
-    """
-    Chroma metadata supports scalar values only. Empty/unsupported values are
-    removed or safely converted to strings.
-    """
+    """Convert metadata into scalar values accepted by Chroma."""
     cleaned: Dict[str, MetadataValue] = {}
 
     for key, value in metadata.items():
@@ -109,12 +106,14 @@ def store_chunks(
     document_id: str,
     chunks: List[Any],
     user_id: str | None = None,
-):
+) -> int:
     """
-    Store chunk text, embeddings, and citation metadata in Chroma.
+    Store chunk text, batch-generated embeddings, and citation metadata.
+
+    All chunk embeddings are generated in one model.encode call rather than
+    one model call per chunk.
     """
     ids: List[str] = []
-    embeddings: List[List[float]] = []
     documents: List[str] = []
     metadatas: List[Dict[str, MetadataValue]] = []
 
@@ -126,19 +125,25 @@ def store_chunks(
 
         text = chunk["text"]
         metadata = dict(chunk["metadata"])
+        chunk_index = len(ids)
+
         metadata["document_id"] = str(document_id)
         metadata["user_id"] = str(user_id) if user_id else ""
-        metadata["chunk_index"] = len(ids)
+        metadata["chunk_index"] = chunk_index
 
-        ids.append(f"{document_id}_{len(ids)}")
-        embeddings.append(get_embedding(text))
+        ids.append(f"{document_id}_{chunk_index}")
         documents.append(text)
         metadatas.append(_to_chroma_metadata(metadata))
 
     if not ids:
         return 0
 
-    # upsert protects against duplicate IDs if processing is retried.
+    embeddings = get_embeddings(documents)
+
+    if len(embeddings) != len(documents):
+        raise RuntimeError("Embedding count did not match the document chunk count.")
+
+    # Upsert protects against duplicate IDs if processing is retried.
     collection.upsert(
         ids=ids,
         embeddings=embeddings,
@@ -155,16 +160,7 @@ def search_chunks(
     user_id: str | None = None,
     n_results: int = 5,
 ) -> List[Dict[str, Any]]:
-    """
-    Retrieve citation-aware source chunks.
-
-    Returned shape:
-    {
-        "text": "retrieved text",
-        "metadata": {...},
-        "distance": 0.12
-    }
-    """
+    """Retrieve citation-aware source chunks."""
     question = _clean_text(question)
 
     if not question:
@@ -229,10 +225,8 @@ def search_chunks(
 def delete_document_chunks(
     document_id: str,
     user_id: str | None = None,
-):
-    """
-    Delete all Chroma chunks for one document. Useful for cleanup/re-upload.
-    """
+) -> None:
+    """Delete all Chroma chunks belonging to one document."""
     if user_id:
         where_filter = {
             "$and": [

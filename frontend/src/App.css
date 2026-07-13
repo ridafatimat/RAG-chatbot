@@ -878,3 +878,12 @@ body {
     padding: 10px;
   }
 }
+
+/* OCR scope note */
+.ocr-disclaimer {
+  margin: 4px 2px 18px;
+  color: #777777;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
