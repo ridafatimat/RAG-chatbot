@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from typing import Optional
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
@@ -314,6 +314,330 @@ def build_recent_chat_history(chat_id: str, limit: int = 8) -> str:
         return ""
 
 
+
+# ---------------------------------------------------------------------------
+# Citation helpers
+# ---------------------------------------------------------------------------
+
+CITATION_FIELDS = (
+    "source_type",
+    "source_label",
+    "page_number",
+    "slide_number",
+    "sheet_name",
+    "row_start",
+    "row_end",
+    "paragraph_start",
+    "paragraph_end",
+    "chunk_index",
+)
+
+
+def _clean_optional_value(value: Any) -> Any:
+    """
+    Keep citation metadata JSON-safe and omit empty values.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, (str, int, float, bool)):
+        return value
+
+    return str(value)
+
+
+def _document_name(document: dict) -> str:
+    return (
+        document.get("file_name")
+        or document.get("name")
+        or document.get("original_filename")
+        or "Uploaded document"
+    )
+
+
+def build_source_label(metadata: dict, fallback_chunk_number: int) -> str:
+    """
+    Build a user-friendly location label for a retrieved chunk.
+    """
+    explicit_label = metadata.get("source_label")
+    if explicit_label:
+        return str(explicit_label)
+
+    page_number = metadata.get("page_number")
+    if page_number not in (None, ""):
+        return f"Page {page_number}"
+
+    slide_number = metadata.get("slide_number")
+    if slide_number not in (None, ""):
+        return f"Slide {slide_number}"
+
+    sheet_name = metadata.get("sheet_name")
+    row_start = metadata.get("row_start")
+    row_end = metadata.get("row_end")
+
+    if sheet_name:
+        if row_start not in (None, "") and row_end not in (None, ""):
+            return f'Sheet "{sheet_name}", Rows {row_start}-{row_end}'
+        if row_start not in (None, ""):
+            return f'Sheet "{sheet_name}", Row {row_start}'
+        return f'Sheet "{sheet_name}"'
+
+    paragraph_start = metadata.get("paragraph_start")
+    paragraph_end = metadata.get("paragraph_end")
+
+    if paragraph_start not in (None, "") and paragraph_end not in (None, ""):
+        if str(paragraph_start) == str(paragraph_end):
+            return f"Paragraph {paragraph_start}"
+        return f"Paragraphs {paragraph_start}-{paragraph_end}"
+
+    chunk_index = metadata.get("chunk_index")
+    if chunk_index not in (None, ""):
+        try:
+            return f"Chunk {int(chunk_index) + 1}"
+        except (TypeError, ValueError):
+            return f"Chunk {chunk_index}"
+
+    return f"Chunk {fallback_chunk_number}"
+
+
+def prepare_retrieved_sources(
+    relevant_chunks: List[Any],
+    document_id: str,
+    document_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Normalize Chroma results into numbered source objects.
+
+    The updated chroma_service will return:
+    {
+        "text": "...",
+        "metadata": {...},
+        "distance": 0.12
+    }
+
+    String chunks are still accepted as a temporary backwards-compatible
+    fallback while the service layer is being upgraded.
+    """
+    sources: List[Dict[str, Any]] = []
+
+    for index, item in enumerate(relevant_chunks, start=1):
+        if isinstance(item, str):
+            text = item.strip()
+            metadata: Dict[str, Any] = {
+                "document_id": document_id,
+                "chunk_index": index - 1,
+                "source_type": "document",
+            }
+            distance = None
+        elif isinstance(item, dict):
+            text = str(
+                item.get("text")
+                or item.get("document")
+                or item.get("content")
+                or ""
+            ).strip()
+
+            metadata = dict(item.get("metadata") or {})
+
+            # Accept metadata fields at the top level too.
+            for field in CITATION_FIELDS:
+                if field in item and field not in metadata:
+                    metadata[field] = item.get(field)
+
+            metadata.setdefault("document_id", document_id)
+            metadata.setdefault("chunk_index", index - 1)
+            metadata.setdefault("source_type", "document")
+            distance = item.get("distance")
+        else:
+            continue
+
+        if not text:
+            continue
+
+        source_label = build_source_label(
+            metadata=metadata,
+            fallback_chunk_number=index,
+        )
+
+        compact_excerpt = re.sub(r"\s+", " ", text).strip()
+        if len(compact_excerpt) > 350:
+            compact_excerpt = compact_excerpt[:347].rstrip() + "..."
+
+        source: Dict[str, Any] = {
+            "source_number": len(sources) + 1,
+            "document_id": document_id,
+            "document_name": document_name,
+            "text": text,
+            "excerpt": compact_excerpt,
+            "source_type": _clean_optional_value(
+                metadata.get("source_type", "document")
+            ),
+            "source_label": source_label,
+            "distance": _clean_optional_value(distance),
+        }
+
+        for field in CITATION_FIELDS:
+            if field in {"source_type", "source_label"}:
+                continue
+
+            value = _clean_optional_value(metadata.get(field))
+            if value is not None and value != "":
+                source[field] = value
+
+        sources.append(source)
+
+    return sources
+
+
+def build_numbered_context(sources: List[Dict[str, Any]]) -> str:
+    """
+    Give the model explicit numbered sources so it can cite [1], [2], etc.
+    """
+    context_parts: List[str] = []
+
+    for source in sources:
+        header_parts = [
+            f"Source {source['source_number']}",
+            source["document_name"],
+            source["source_label"],
+        ]
+
+        context_parts.append(
+            f"[{' | '.join(header_parts)}]\n{source['text']}"
+        )
+
+    return "\n\n".join(context_parts)
+
+
+def _sanitize_citation_string(text: str, valid_source_numbers: Set[int]) -> str:
+    """
+    Remove citation numbers invented by the model while preserving valid ones.
+    """
+    citation_pattern = re.compile(r"\[([0-9,\s]+)\]")
+
+    def replace_match(match: re.Match) -> str:
+        found = [
+            int(number)
+            for number in re.findall(r"\d+", match.group(1))
+        ]
+
+        valid: List[int] = []
+        for number in found:
+            if number in valid_source_numbers and number not in valid:
+                valid.append(number)
+
+        if not valid:
+            return ""
+
+        return "[" + ", ".join(str(number) for number in valid) + "]"
+
+    return citation_pattern.sub(replace_match, text)
+
+
+def sanitize_inline_citations(value: Any, valid_source_numbers: Set[int]) -> Any:
+    """
+    Recursively validate citation markers inside structured JSON.
+    """
+    if isinstance(value, str):
+        return _sanitize_citation_string(value, valid_source_numbers)
+
+    if isinstance(value, list):
+        return [
+            sanitize_inline_citations(item, valid_source_numbers)
+            for item in value
+        ]
+
+    if isinstance(value, dict):
+        return {
+            key: sanitize_inline_citations(item, valid_source_numbers)
+            for key, item in value.items()
+        }
+
+    return value
+
+
+def extract_used_source_numbers(value: Any) -> Set[int]:
+    """
+    Collect source numbers actually cited by the model.
+    """
+    used: Set[int] = set()
+
+    if isinstance(value, str):
+        for match in re.finditer(r"\[([0-9,\s]+)\]", value):
+            used.update(
+                int(number)
+                for number in re.findall(r"\d+", match.group(1))
+            )
+
+    elif isinstance(value, list):
+        for item in value:
+            used.update(extract_used_source_numbers(item))
+
+    elif isinstance(value, dict):
+        for item in value.values():
+            used.update(extract_used_source_numbers(item))
+
+    return used
+
+
+def build_citation_payload(
+    sources: List[Dict[str, Any]],
+    used_source_numbers: Set[int],
+) -> List[Dict[str, Any]]:
+    """
+    Return only the sources that the answer actually cited.
+    """
+    citations: List[Dict[str, Any]] = []
+
+    for source in sources:
+        if source["source_number"] not in used_source_numbers:
+            continue
+
+        citation = {
+            key: value
+            for key, value in source.items()
+            if key != "text" and value is not None
+        }
+        citations.append(citation)
+
+    return citations
+
+
+def save_chat_message_with_citations(
+    *,
+    chat_id: str,
+    role: str,
+    message: str,
+    answer_type: str,
+    structured_answer: Optional[dict],
+    citations: Optional[List[Dict[str, Any]]] = None,
+):
+    """
+    Transitional wrapper.
+
+    It stores citations once mongo_service.save_chat_message accepts the new
+    citations argument. Until then, it falls back to the current signature so
+    route development can be completed before the service update.
+    """
+    kwargs = {
+        "chat_id": chat_id,
+        "role": role,
+        "message": message,
+        "answer_type": answer_type,
+        "structured_answer": structured_answer,
+        "citations": citations or [],
+    }
+
+    try:
+        return save_chat_message(**kwargs)
+    except TypeError as error:
+        if "citations" not in str(error):
+            raise
+
+        kwargs.pop("citations", None)
+        return save_chat_message(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
@@ -355,7 +679,13 @@ ABSOLUTE RULES:
 - {length_rule}
 - Do not repeat headings.
 - Do not add unnecessary headings.
-- Do not mention retrieved chunks.
+- The Document Context is divided into numbered sources such as Source 1 and Source 2.
+- Every factual statement, answer, explanation, list item, table row, quiz answer, or generated document-based item MUST include one or more supporting inline citations, for example [1], [2], or [1, 2].
+- Place citations immediately after the claim they support.
+- Use ONLY source numbers that appear in Document Context.
+- Never invent a source number.
+- Recent Chat History may help resolve follow-ups, but it is not itself a citable source.
+- Do not write phrases such as "retrieved chunk" or "context chunk".
 - Return ONLY valid JSON.
 - No markdown.
 - No backticks.
@@ -370,6 +700,9 @@ IMPORTANT:
 - If user asks "from this document", all content must come from Document Context.
 - If user asks a follow-up like "now tell their answers", use Recent Chat History to identify what "their" refers to, then answer using Document Context.
 - When generating questions, MCQs, blanks, flashcards, or quiz content, create the actual content. Do not describe the task.
+- For generated questions without answers, append the citation to the question itself.
+- For question-answer content, cite the answer. Cite the question too when it contains a document-specific factual claim.
+- The not-found response and ordinary small talk do not need citations.
 
 Document Context:
 {context}
@@ -401,7 +734,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "paragraph",
-      "content": "The summary here, following the exact requested length."
+      "content": "The summary here, following the exact requested length. [1]"
     }}
   ]
 }}
@@ -428,9 +761,9 @@ Return JSON:
     {{
       "block_type": "numbered_list",
       "items": [
-        "First key point written out in full.",
-        "Second key point written out in full.",
-        "Third key point written out in full."
+        "First key point written out in full. [1]",
+        "Second key point written out in full. [2]",
+        "Third key point written out in full. [1]"
       ]
     }}
   ]
@@ -459,14 +792,14 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "mcq",
-      "question": "Question based only on the document?",
+      "question": "Question based only on the document? [1]",
       "options": [
         "A. Option from document",
         "B. Plausible option",
         "C. Plausible option",
         "D. Plausible option"
       ],
-      "answer": "A. Option from document"
+      "answer": "A. Option from document [1]"
     }}
   ]
 }}
@@ -493,7 +826,7 @@ Return JSON:
     {{
       "block_type": "qa",
       "question": "Front side of flashcard",
-      "answer": "Back side of flashcard based only on document."
+      "answer": "Back side of flashcard based only on document. [1]"
     }}
   ]
 }}
@@ -523,7 +856,7 @@ Return JSON:
     {{
       "block_type": "qa",
       "question": "Previous question copied here?",
-      "answer": "Answer from the document."
+      "answer": "Answer from the document. [1]"
     }}
   ]
 }}
@@ -560,14 +893,14 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "paragraph",
-      "content": "This chart data represents the document content by category."
+      "content": "This chart data represents the document content by category. [1]"
     }},
     {{
       "block_type": "table",
       "headers": ["Label", "Value"],
       "rows": [
-        ["Category 1", "3"],
-        ["Category 2", "2"]
+        ["Category 1", "3 [1]"],
+        ["Category 2", "2 [2]"]
       ]
     }}
   ]
@@ -594,7 +927,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "qa",
-      "question": "A statement based on the document.",
+      "question": "A statement based on the document. [1]",
       "answer": "True"
     }}
   ]
@@ -620,7 +953,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "qa",
-      "question": "Sentence with ______ blank.",
+      "question": "Sentence with ______ blank. [1]",
       "answer": "Missing word or phrase"
     }}
   ]
@@ -650,8 +983,8 @@ Return JSON:
     {{
       "block_type": "numbered_list",
       "items": [
-        "Question 1 from the document?",
-        "Question 2 from the document?"
+        "Question 1 from the document? [1]",
+        "Question 2 from the document? [2]"
       ]
     }}
   ]
@@ -680,7 +1013,7 @@ Return JSON:
     {{
       "block_type": "qa",
       "question": "Detailed question from document?",
-      "answer": "Detailed answer from document."
+      "answer": "Detailed answer from document. [1]"
     }}
   ]
 }}
@@ -703,7 +1036,7 @@ Return JSON:
       "block_type": "table",
       "headers": ["Column 1", "Column 2"],
       "rows": [
-        ["Value 1", "Value 2"]
+        ["Value 1 [1]", "Value 2 [1]"]
       ]
     }}
   ]
@@ -727,7 +1060,7 @@ Return JSON:
       "block_type": "table",
       "headers": ["Aspect", "Item 1", "Item 2"],
       "rows": [
-        ["Aspect from document", "Details", "Details"]
+        ["Aspect from document", "Details [1]", "Details [2]"]
       ]
     }}
   ]
@@ -749,7 +1082,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "numbered_list",
-      "items": ["First event or step", "Second event or step"]
+      "items": ["First event or step [1]", "Second event or step [2]"]
     }}
   ]
 }}
@@ -770,7 +1103,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "list",
-      "items": ["Checklist item 1", "Checklist item 2"]
+      "items": ["Checklist item 1 [1]", "Checklist item 2 [2]"]
     }}
   ]
 }}
@@ -792,7 +1125,7 @@ Return JSON:
     {{
       "block_type": "qa",
       "question": "Term or question",
-      "answer": "Definition from the document."
+      "answer": "Definition from the document. [1]"
     }}
   ]
 }}
@@ -813,7 +1146,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "paragraph",
-      "content": "Explanation from the document."
+      "content": "Explanation from the document. [1]"
     }},
     {{
       "block_type": "code",
@@ -856,7 +1189,7 @@ Return JSON:
   "blocks": [
     {{
       "block_type": "paragraph",
-      "content": "Answer from the document."
+      "content": "Answer from the document. [1]"
     }}
   ]
 }}
@@ -866,7 +1199,10 @@ If not enough context, return:
 """
 
 
-def parse_structured_answer(raw_answer: str):
+def parse_structured_answer(
+    raw_answer: str,
+    valid_source_numbers: Optional[Set[int]] = None,
+):
     try:
         cleaned = raw_answer.strip()
 
@@ -916,6 +1252,12 @@ def parse_structured_answer(raw_answer: str):
             cleaned_blocks.append(block)
 
         data["blocks"] = cleaned_blocks
+
+        if valid_source_numbers is not None:
+            data = sanitize_inline_citations(
+                data,
+                valid_source_numbers,
+            )
 
         return data
     except Exception:
@@ -1063,7 +1405,7 @@ def chat(
 
             chat_id = str(chat_session["_id"])
 
-        save_chat_message(
+        save_chat_message_with_citations(
             chat_id=chat_id,
             role="user",
             message=question,
@@ -1074,7 +1416,7 @@ def chat(
         small_talk_answer = handle_small_talk(question)
 
         if small_talk_answer:
-            save_chat_message(
+            save_chat_message_with_citations(
                 chat_id=chat_id,
                 role="assistant",
                 message=small_talk_answer,
@@ -1088,6 +1430,8 @@ def chat(
                 "answer": small_talk_answer,
                 "answer_type": "plain",
                 "structured_answer": None,
+                "citations": [],
+                "retrieved_sources": [],
                 "context_used": [],
                 "intent": "small_talk",
                 "model_used": None,
@@ -1119,7 +1463,13 @@ def chat(
             user_id=user_id,
         )
 
-        if not relevant_chunks:
+        retrieved_sources = prepare_retrieved_sources(
+            relevant_chunks=relevant_chunks,
+            document_id=document_id,
+            document_name=_document_name(document),
+        )
+
+        if not retrieved_sources:
             no_context_answer = {
                 "title": "Answer Not Found",
                 "type": "structured",
@@ -1131,12 +1481,13 @@ def chat(
                 ],
             }
 
-            save_chat_message(
+            save_chat_message_with_citations(
                 chat_id=chat_id,
                 role="assistant",
                 message="Answer not found in the document.",
                 answer_type="structured",
                 structured_answer=no_context_answer,
+                citations=[],
             )
 
             return {
@@ -1146,13 +1497,19 @@ def chat(
                 "answer": "Answer not found in the document.",
                 "answer_type": "structured",
                 "structured_answer": no_context_answer,
+                "citations": [],
+                "retrieved_sources": [],
                 "context_used": [],
                 "intent": "document_question_no_context",
                 "model_used": None,
                 "language": "English",
             }
 
-        context = "\n\n".join(relevant_chunks)
+        context = build_numbered_context(retrieved_sources)
+        valid_source_numbers = {
+            source["source_number"]
+            for source in retrieved_sources
+        }
 
         prompt = build_prompt_for_intent(
             intent=intent,
@@ -1171,22 +1528,53 @@ def chat(
         )
 
         raw_answer = response.choices[0].message.content.strip()
-        structured_answer = parse_structured_answer(raw_answer)
+        structured_answer = parse_structured_answer(
+            raw_answer,
+            valid_source_numbers=valid_source_numbers,
+        )
 
         if structured_answer:
-            display_answer = structured_answer.get("title", "Generated answer.")
+            display_answer = structured_answer.get(
+                "title",
+                "Generated answer.",
+            )
             final_answer_type = "structured"
+            used_source_numbers = extract_used_source_numbers(
+                structured_answer
+            )
         else:
-            display_answer = raw_answer
+            sanitized_raw_answer = _sanitize_citation_string(
+                raw_answer,
+                valid_source_numbers,
+            )
+            display_answer = sanitized_raw_answer
             final_answer_type = "plain"
+            used_source_numbers = extract_used_source_numbers(
+                sanitized_raw_answer
+            )
 
-        save_chat_message(
+        citations = build_citation_payload(
+            sources=retrieved_sources,
+            used_source_numbers=used_source_numbers,
+        )
+
+        save_chat_message_with_citations(
             chat_id=chat_id,
             role="assistant",
             message=display_answer,
             answer_type=final_answer_type,
             structured_answer=structured_answer,
+            citations=citations,
         )
+
+        public_retrieved_sources = [
+            {
+                key: value
+                for key, value in source.items()
+                if key != "text" and value is not None
+            }
+            for source in retrieved_sources
+        ]
 
         return {
             "chat_id": chat_id,
@@ -1195,7 +1583,9 @@ def chat(
             "answer": display_answer,
             "answer_type": final_answer_type,
             "structured_answer": structured_answer,
-            "context_used": relevant_chunks,
+            "citations": citations,
+            "retrieved_sources": public_retrieved_sources,
+            "context_used": public_retrieved_sources,
             "intent": intent,
             "model_used": answer_model,
             "language": "English",
@@ -1270,6 +1660,7 @@ def get_chat(
             "message": message.get("message"),
             "answer_type": message.get("answer_type", "plain"),
             "structured_answer": message.get("structured_answer"),
+            "citations": message.get("citations", []),
         }
         for message in messages
     ]

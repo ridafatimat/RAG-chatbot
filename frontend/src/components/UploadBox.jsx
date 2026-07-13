@@ -24,7 +24,7 @@ function UploadBox({ user }) {
   }, [messages, sending]);
 
   const handleFileChange = (event) => {
-    const selectedFile = event.target.files[0];
+    const selectedFile = event.target.files?.[0] || null;
 
     setFile(selectedFile);
     setDocumentName(selectedFile ? selectedFile.name : "");
@@ -32,6 +32,7 @@ function UploadBox({ user }) {
     setUploadedDoc(null);
     setMessages([]);
     setChatId(null);
+    setInput("");
   };
 
   const handleUpload = async () => {
@@ -65,28 +66,32 @@ function UploadBox({ user }) {
           "Document uploaded, processed, and stored in RAG system successfully."
       );
 
-      if (data.document) {
-        setUploadedDoc(data.document);
-        setMessages([]);
-
-        const sessionRes = await fetch(
-          `${API_BASE_URL}/chat/session?document_id=${data.document.file_id}`,
-          {
-            method: "GET",
-            credentials: "include",
-          }
-        );
-
-        const sessionData = await sessionRes.json();
-
-        if (!sessionRes.ok) {
-          setMessage(sessionData.detail || "Could not create chat session.");
-          return;
-        }
-
-        setChatId(sessionData.chat_id);
+      if (!data.document) {
+        setMessage("Document uploaded, but document details were not returned.");
+        return;
       }
+
+      setUploadedDoc(data.document);
+      setMessages([]);
+
+      const sessionRes = await fetch(
+        `${API_BASE_URL}/chat/session?document_id=${data.document.file_id}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      const sessionData = await sessionRes.json();
+
+      if (!sessionRes.ok) {
+        setMessage(sessionData.detail || "Could not create chat session.");
+        return;
+      }
+
+      setChatId(sessionData.chat_id);
     } catch (error) {
+      console.error("Upload error:", error);
       setMessage(
         "Could not connect to backend. Please make sure backend is running."
       );
@@ -95,12 +100,35 @@ function UploadBox({ user }) {
     }
   };
 
+  const addAssistantError = (errorMessage) => {
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "assistant",
+        message: errorMessage,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || !uploadedDoc || !chatId || sending) return;
 
     const question = input.trim();
 
-    setMessages((prev) => [...prev, { role: "user", message: question }]);
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "user",
+        message: question,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+
     setInput("");
     setSending(true);
 
@@ -121,37 +149,23 @@ function UploadBox({ user }) {
       const data = await res.json();
 
       if (!res.ok) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            message: data.detail || "Something went wrong.",
-            answer_type: "plain",
-            structured_answer: null,
-          },
-        ]);
+        addAssistantError(data.detail || "Something went wrong.");
         return;
       }
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previousMessages) => [
+        ...previousMessages,
         {
           role: "assistant",
           message: data.answer || "No answer returned from the server.",
           answer_type: data.answer_type || "plain",
           structured_answer: data.structured_answer || null,
+          citations: Array.isArray(data.citations) ? data.citations : [],
         },
       ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "Something went wrong reaching the server.",
-          answer_type: "plain",
-          structured_answer: null,
-        },
-      ]);
+    } catch (error) {
+      console.error("Chat request error:", error);
+      addAssistantError("Something went wrong reaching the server.");
     } finally {
       setSending(false);
     }
@@ -191,20 +205,20 @@ function UploadBox({ user }) {
             />
 
             <div className="cloud-icon">☁</div>
-
-            <p>{documentName ? documentName : "Drop file here"}</p>
+            <p>{documentName || "Drop file here"}</p>
 
             <span className="file-types">
               {uploadedDoc
-                ? `${file?.name
-                    ?.split(".")
-                    .pop()
-                    ?.toUpperCase()} document processed successfully`
+                ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
                 : "PDF, TXT, DOCX, PPTX, CSV, XLSX supported"}
             </span>
           </label>
 
-          <button className="process-btn" onClick={handleUpload} disabled={loading}>
+          <button
+            className="process-btn"
+            onClick={handleUpload}
+            disabled={loading || !file}
+          >
             {loading ? "Processing..." : "Process Document"}
           </button>
 
@@ -228,15 +242,20 @@ function UploadBox({ user }) {
             )}
 
             {uploadedDoc &&
-              messages.map((m, i) => (
+              messages.map((chatMessage, index) => (
                 <div
-                  key={i}
-                  className={m.role === "user" ? "user-message" : "bot-message"}
+                  key={index}
+                  className={
+                    chatMessage.role === "user" ? "user-message" : "bot-message"
+                  }
                 >
-                  {m.role === "assistant" ? (
-                    <StructuredAnswer message={m} accentColor="#e53935" />
+                  {chatMessage.role === "assistant" ? (
+                    <StructuredAnswer
+                      message={chatMessage}
+                      accentColor="#e53935"
+                    />
                   ) : (
-                    m.message
+                    chatMessage.message
                   )}
                 </div>
               ))}
@@ -248,33 +267,30 @@ function UploadBox({ user }) {
             <input
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               placeholder={
                 uploadedDoc
                   ? "Ask something about this document..."
                   : "Upload a document first..."
               }
-              disabled={!uploadedDoc || sending}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+              disabled={!uploadedDoc || !chatId || sending}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
                   sendMessage();
                 }
               }}
             />
 
-            <button onClick={sendMessage} disabled={!uploadedDoc || sending}>
+            <button
+              onClick={sendMessage}
+              disabled={!uploadedDoc || !chatId || sending || !input.trim()}
+            >
               ↑
             </button>
           </div>
 
-          <p
-            style={{
-              color: "#8f8f8f",
-              fontSize: "12px",
-              textAlign: "center",
-              margin: "8px 0 0",
-            }}
-          >
+          <p className="chat-disclaimer">
             You can write your question in any language. RAG Assistant will
             answer in English only.
           </p>

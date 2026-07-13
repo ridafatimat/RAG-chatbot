@@ -14,6 +14,18 @@ const COLORS = {
   assistantBubble: "#262626",
 };
 
+function normalizeLoadedMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages.map((message) => ({
+    role: message.role,
+    message: message.message || "",
+    answer_type: message.answer_type || "plain",
+    structured_answer: message.structured_answer || null,
+    citations: Array.isArray(message.citations) ? message.citations : [],
+  }));
+}
+
 function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,19 +50,23 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
               message: data.detail || "Could not load chat history.",
               answer_type: "plain",
               structured_answer: null,
+              citations: [],
             },
           ]);
           return;
         }
 
-        setMessages(data.messages || []);
+        setMessages(normalizeLoadedMessages(data.messages));
       } catch (error) {
+        console.error("Chat history error:", error);
+
         setMessages([
           {
             role: "assistant",
             message: "Could not load chat history.",
             answer_type: "plain",
             structured_answer: null,
+            citations: [],
           },
         ]);
       }
@@ -65,25 +81,40 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
     }
   }, [messages, loading]);
 
+  const addAssistantError = (message) => {
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "assistant",
+        message,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
     if (!document?.file_id) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "No document selected.",
-          answer_type: "plain",
-          structured_answer: null,
-        },
-      ]);
+      addAssistantError("No document selected.");
       return;
     }
 
     const question = input.trim();
 
-    setMessages((prev) => [...prev, { role: "user", message: question }]);
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "user",
+        message: question,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+
     setInput("");
     setLoading(true);
 
@@ -104,37 +135,23 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
       const data = await res.json();
 
       if (!res.ok) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            message: data.detail || "Something went wrong.",
-            answer_type: "plain",
-            structured_answer: null,
-          },
-        ]);
+        addAssistantError(data.detail || "Something went wrong.");
         return;
       }
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previousMessages) => [
+        ...previousMessages,
         {
           role: "assistant",
           message: data.answer || "No answer returned from the server.",
           answer_type: data.answer_type || "plain",
           structured_answer: data.structured_answer || null,
+          citations: Array.isArray(data.citations) ? data.citations : [],
         },
       ]);
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "Could not connect to backend.",
-          answer_type: "plain",
-          structured_answer: null,
-        },
-      ]);
+      console.error("Chat request error:", error);
+      addAssistantError("Could not connect to backend.");
     } finally {
       setLoading(false);
     }
@@ -161,11 +178,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
       >
         <div
           className="brand-block"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
+          style={{ display: "flex", alignItems: "center", gap: "10px" }}
         >
           <div
             className="brand-icon"
@@ -186,23 +199,11 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           </div>
 
           <div>
-            <h1
-              style={{
-                color: COLORS.textLight,
-                fontSize: "18px",
-                margin: 0,
-              }}
-            >
+            <h1 style={{ color: COLORS.textLight, fontSize: "18px", margin: 0 }}>
               {document?.file_name || "Document Chat"}
             </h1>
 
-            <p
-              style={{
-                color: COLORS.textDim,
-                margin: 0,
-                fontSize: "13px",
-              }}
-            >
+            <p style={{ color: COLORS.textDim, margin: 0, fontSize: "13px" }}>
               Chat Session
             </p>
           </div>
@@ -258,39 +259,47 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
             </p>
           )}
 
-          {messages.map((m, i) => (
+          {messages.map((message, index) => (
             <div
-              key={i}
+              key={index}
               style={{
                 display: "flex",
-                justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+                justifyContent:
+                  message.role === "user" ? "flex-end" : "flex-start",
                 margin: "8px 0",
               }}
             >
               <div
                 style={{
                   maxWidth:
-                    m.answer_type && m.answer_type !== "plain" ? "90%" : "75%",
+                    message.answer_type && message.answer_type !== "plain"
+                      ? "90%"
+                      : "75%",
                   padding: "10px 14px",
                   borderRadius: "14px",
                   background:
-                    m.role === "user" ? COLORS.red : COLORS.assistantBubble,
+                    message.role === "user"
+                      ? COLORS.red
+                      : COLORS.assistantBubble,
                   border:
-                    m.role === "assistant"
+                    message.role === "assistant"
                       ? `1px solid ${COLORS.border}`
                       : "none",
                   color: COLORS.textLight,
-                  fontWeight: m.role === "user" ? 700 : 400,
+                  fontWeight: message.role === "user" ? 700 : 400,
                   lineHeight: "1.4",
                   wordBreak: "break-word",
                   display: "inline-block",
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {m.role === "assistant" ? (
-                  <StructuredAnswer message={m} accentColor={COLORS.red} />
+                {message.role === "assistant" ? (
+                  <StructuredAnswer
+                    message={message}
+                    accentColor={COLORS.red}
+                  />
                 ) : (
-                  m.message
+                  message.message
                 )}
               </div>
             </div>
@@ -320,17 +329,12 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           )}
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: "10px",
-            marginTop: "4px",
-          }}
-        >
+        <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             placeholder="Ask something..."
+            disabled={loading}
             style={{
               flex: 1,
               padding: "12px 14px",
@@ -339,9 +343,11 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
               background: COLORS.panel,
               color: COLORS.textLight,
               outline: "none",
+              opacity: loading ? 0.7 : 1,
             }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
               }
             }}
@@ -349,7 +355,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
 
           <button
             onClick={sendMessage}
-            disabled={loading}
+            disabled={loading || !input.trim()}
             style={{
               background: COLORS.red,
               color: COLORS.textLight,
@@ -357,21 +363,17 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
               borderRadius: "10px",
               padding: "12px 22px",
               fontWeight: 700,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
+              cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+              opacity: loading || !input.trim() ? 0.7 : 1,
             }}
-            onMouseDown={(e) => {
-              if (!loading) {
-                e.currentTarget.style.background = COLORS.redDark;
-              }
+            onMouseDown={(event) => {
+              if (!loading) event.currentTarget.style.background = COLORS.redDark;
             }}
-            onMouseUp={(e) => {
-              if (!loading) {
-                e.currentTarget.style.background = COLORS.red;
-              }
+            onMouseUp={(event) => {
+              if (!loading) event.currentTarget.style.background = COLORS.red;
             }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = COLORS.red;
+            onMouseLeave={(event) => {
+              event.currentTarget.style.background = COLORS.red;
             }}
           >
             Send

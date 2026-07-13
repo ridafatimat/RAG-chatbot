@@ -43,20 +43,21 @@ function App() {
   }, []);
 
   // ---------------- OPEN CHAT ----------------
-  const openDocumentChat = async (doc) => {
-    if (!user?._id || !doc?.file_id) {
+  const openDocumentChat = async (document) => {
+    if (!user?._id || !document?.file_id) {
       console.error("Missing user ID or document ID.");
       setChatOpenError("Could not open chat. Missing user or document details.");
       return;
     }
 
-    setSelectedDocument(doc);
+    setSelectedDocument(document);
     setMessages([]);
+    setChatId(null);
     setChatOpenError("");
 
     try {
       const res = await fetch(
-        `${API_BASE_URL}/chat/session?document_id=${doc.file_id}`,
+        `${API_BASE_URL}/chat/session?document_id=${document.file_id}`,
         {
           method: "GET",
           credentials: "include",
@@ -67,14 +68,16 @@ function App() {
 
       if (!res.ok) {
         console.error("Could not open chat session:", data.detail);
+        setSelectedDocument(null);
         setChatOpenError(data.detail || "Could not open chat session.");
         return;
       }
 
       setChatId(data.chat_id);
       setPage("chat");
-    } catch (err) {
-      console.error("Chat open error:", err);
+    } catch (error) {
+      console.error("Chat open error:", error);
+      setSelectedDocument(null);
       setChatOpenError("Could not connect to backend.");
     }
   };

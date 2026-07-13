@@ -1,8 +1,11 @@
 import os
+from typing import Any, Dict, List, Optional
+
 import chromadb
 from dotenv import load_dotenv
 
 from services.embedding_service import get_embedding
+
 
 load_dotenv()
 
@@ -12,15 +15,17 @@ CHROMA_DATABASE = os.getenv("CHROMA_DATABASE")
 
 # Railway/local fallback path
 CHROMA_PATH = os.getenv("CHROMA_PATH", "/tmp/chroma_db")
+COLLECTION_NAME = os.getenv("CHROMA_COLLECTION", "documents")
+
+
+MetadataValue = str | int | float | bool
 
 
 def get_chroma_client():
     """
-    Try Chroma Cloud first.
-    If Chroma Cloud credentials fail, fall back to local Chroma
-    so the backend does not crash on Railway.
+    Try Chroma Cloud first. If credentials or connection fail, fall back to
+    local persistent Chroma storage so the backend can still start.
     """
-
     if CHROMA_API_KEY and CHROMA_TENANT and CHROMA_DATABASE:
         try:
             print("Trying Chroma Cloud connection...")
@@ -31,50 +36,140 @@ def get_chroma_client():
                 database=CHROMA_DATABASE.strip(),
             )
 
-        except Exception as e:
+        except Exception as error:
             print("Chroma Cloud connection failed.")
-            print(f"Reason: {e}")
+            print(f"Reason: {error}")
             print("Falling back to local Chroma storage...")
 
     else:
         print("Chroma Cloud env variables missing.")
         print("Using local Chroma storage...")
 
+    os.makedirs(CHROMA_PATH, exist_ok=True)
     return chromadb.PersistentClient(path=CHROMA_PATH)
 
 
-client = get_chroma_client()
-collection = client.get_or_create_collection(name="documents")
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+
+    return str(value).replace("\x00", "").strip()
 
 
-def store_chunks(document_id: str, chunks: list[str], user_id: str | None = None):
-    ids = []
-    embeddings = []
-    documents = []
-    metadatas = []
+def _to_chroma_metadata(metadata: Dict[str, Any]) -> Dict[str, MetadataValue]:
+    """
+    Chroma metadata supports scalar values only. Empty/unsupported values are
+    removed or safely converted to strings.
+    """
+    cleaned: Dict[str, MetadataValue] = {}
 
-    for i, chunk in enumerate(chunks):
-        embedding = get_embedding(chunk)
+    for key, value in metadata.items():
+        if value is None or value == "":
+            continue
 
-        ids.append(f"{document_id}_{i}")
-        embeddings.append(embedding)
-        documents.append(chunk)
-        metadatas.append({
-            "document_id": str(document_id),
-            "user_id": str(user_id) if user_id else "",
-            "chunk_index": i,
-        })
+        if isinstance(value, (str, int, float, bool)):
+            cleaned[str(key)] = value
+        else:
+            cleaned[str(key)] = str(value)
 
-    if ids:
-        collection.add(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
+    return cleaned
+
+
+def _normalise_chunk(chunk: Any, index: int) -> Optional[Dict[str, Any]]:
+    if isinstance(chunk, str):
+        text = _clean_text(chunk)
+        metadata: Dict[str, Any] = {}
+    elif isinstance(chunk, dict):
+        text = _clean_text(
+            chunk.get("text")
+            or chunk.get("document")
+            or chunk.get("content")
         )
+        metadata = dict(chunk.get("metadata") or {})
+    else:
+        return None
+
+    if not text:
+        return None
+
+    metadata.setdefault("chunk_index", index)
+    metadata.setdefault("source_label", f"Chunk {index + 1}")
+
+    return {
+        "text": text,
+        "metadata": metadata,
+    }
 
 
-def search_chunks(document_id: str, question: str, user_id: str | None = None):
+def get_collection():
+    return client.get_or_create_collection(name=COLLECTION_NAME)
+
+
+def store_chunks(
+    document_id: str,
+    chunks: List[Any],
+    user_id: str | None = None,
+):
+    """
+    Store chunk text, embeddings, and citation metadata in Chroma.
+    """
+    ids: List[str] = []
+    embeddings: List[List[float]] = []
+    documents: List[str] = []
+    metadatas: List[Dict[str, MetadataValue]] = []
+
+    for index, raw_chunk in enumerate(chunks):
+        chunk = _normalise_chunk(raw_chunk, index)
+
+        if not chunk:
+            continue
+
+        text = chunk["text"]
+        metadata = dict(chunk["metadata"])
+        metadata["document_id"] = str(document_id)
+        metadata["user_id"] = str(user_id) if user_id else ""
+        metadata["chunk_index"] = len(ids)
+
+        ids.append(f"{document_id}_{len(ids)}")
+        embeddings.append(get_embedding(text))
+        documents.append(text)
+        metadatas.append(_to_chroma_metadata(metadata))
+
+    if not ids:
+        return 0
+
+    # upsert protects against duplicate IDs if processing is retried.
+    collection.upsert(
+        ids=ids,
+        embeddings=embeddings,
+        documents=documents,
+        metadatas=metadatas,
+    )
+
+    return len(ids)
+
+
+def search_chunks(
+    document_id: str,
+    question: str,
+    user_id: str | None = None,
+    n_results: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve citation-aware source chunks.
+
+    Returned shape:
+    {
+        "text": "retrieved text",
+        "metadata": {...},
+        "distance": 0.12
+    }
+    """
+    question = _clean_text(question)
+
+    if not question:
+        return []
+
     query_embedding = get_embedding(question)
 
     if user_id:
@@ -89,11 +184,67 @@ def search_chunks(document_id: str, question: str, user_id: str | None = None):
 
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=5,
+        n_results=max(1, int(n_results)),
         where=where_filter,
+        include=["documents", "metadatas", "distances"],
     )
 
-    if not results or not results.get("documents"):
+    if not results:
         return []
 
-    return results["documents"][0]
+    document_groups = results.get("documents") or []
+    metadata_groups = results.get("metadatas") or []
+    distance_groups = results.get("distances") or []
+
+    documents = document_groups[0] if document_groups else []
+    metadatas = metadata_groups[0] if metadata_groups else []
+    distances = distance_groups[0] if distance_groups else []
+
+    sources: List[Dict[str, Any]] = []
+
+    for index, document_text in enumerate(documents):
+        text = _clean_text(document_text)
+
+        if not text:
+            continue
+
+        metadata = (
+            dict(metadatas[index])
+            if index < len(metadatas) and metadatas[index]
+            else {}
+        )
+        distance = distances[index] if index < len(distances) else None
+
+        sources.append(
+            {
+                "text": text,
+                "metadata": metadata,
+                "distance": float(distance) if distance is not None else None,
+            }
+        )
+
+    return sources
+
+
+def delete_document_chunks(
+    document_id: str,
+    user_id: str | None = None,
+):
+    """
+    Delete all Chroma chunks for one document. Useful for cleanup/re-upload.
+    """
+    if user_id:
+        where_filter = {
+            "$and": [
+                {"document_id": str(document_id)},
+                {"user_id": str(user_id)},
+            ]
+        }
+    else:
+        where_filter = {"document_id": str(document_id)}
+
+    collection.delete(where=where_filter)
+
+
+client = get_chroma_client()
+collection = get_collection()

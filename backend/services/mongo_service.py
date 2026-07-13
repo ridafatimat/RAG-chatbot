@@ -1,10 +1,12 @@
 import os
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import certifi
 from bson import ObjectId
-from pymongo import MongoClient
 from dotenv import load_dotenv
+from pymongo import MongoClient
+
 
 load_dotenv()
 
@@ -36,34 +38,43 @@ email_verifications_collection = db["email_verifications"]
 # -----------------------------
 # HELPERS
 # -----------------------------
+def _iso_datetime(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    return value
+
+
 def format_document(document):
     if not document:
         return None
 
-    document["_id"] = str(document["_id"])
+    formatted = dict(document)
+    formatted["_id"] = str(formatted["_id"])
 
-    if "user_id" in document:
-        document["user_id"] = str(document["user_id"])
+    if "user_id" in formatted and formatted["user_id"] is not None:
+        formatted["user_id"] = str(formatted["user_id"])
 
-    if "upload_date" in document and document["upload_date"]:
-        document["upload_date"] = document["upload_date"].isoformat()
+    if formatted.get("upload_date"):
+        formatted["upload_date"] = _iso_datetime(formatted["upload_date"])
 
-    return document
+    return formatted
 
 
 def format_chat_session(session):
     if not session:
         return None
 
-    session["_id"] = str(session["_id"])
+    formatted = dict(session)
+    formatted["_id"] = str(formatted["_id"])
 
-    if "user_id" in session:
-        session["user_id"] = str(session["user_id"])
+    if "user_id" in formatted and formatted["user_id"] is not None:
+        formatted["user_id"] = str(formatted["user_id"])
 
-    if "created_at" in session and session["created_at"]:
-        session["created_at"] = session["created_at"].isoformat()
+    if formatted.get("created_at"):
+        formatted["created_at"] = _iso_datetime(formatted["created_at"])
 
-    return session
+    return formatted
 
 
 # -----------------------------
@@ -147,15 +158,14 @@ def save_document_metadata(
         "text_preview": text_preview,
         "full_text_length": full_text_length,
         "chunks_count": chunks_count,
+        "citation_ready": True,
         "status": "uploaded_extracted",
     }
 
     result = documents_collection.insert_one(document)
+    document["_id"] = result.inserted_id
 
-    document["_id"] = str(result.inserted_id)
-    document["upload_date"] = document["upload_date"].isoformat()
-
-    return document
+    return format_document(document)
 
 
 def get_documents_by_user(user_id: str):
@@ -177,10 +187,7 @@ def get_document_by_file_id_for_user(file_id: str, user_id: str):
         }
     )
 
-    if not document:
-        return None
-
-    return format_document(document)
+    return format_document(document) if document else None
 
 
 def get_document_by_id_for_user(document_id: str, user_id: str):
@@ -204,23 +211,17 @@ def get_document_by_id_for_user(document_id: str, user_id: str):
     except Exception:
         return None
 
-    if not document:
-        return None
-
-    return format_document(document)
+    return format_document(document) if document else None
 
 
 def get_all_documents():
     """
-    Internal/debug only.
-    Do not expose this directly in public routes.
+    Internal/debug only. Do not expose this directly in public routes.
     """
-    documents = []
-
-    for document in documents_collection.find().sort("upload_date", -1):
-        documents.append(format_document(document))
-
-    return documents
+    return [
+        format_document(document)
+        for document in documents_collection.find().sort("upload_date", -1)
+    ]
 
 
 # -----------------------------
@@ -247,11 +248,9 @@ def get_or_create_chat_session(user_id: str, document_id: str, title: str = None
     }
 
     result = chat_sessions_collection.insert_one(session)
+    session["_id"] = result.inserted_id
 
-    session["_id"] = str(result.inserted_id)
-    session["created_at"] = session["created_at"].isoformat()
-
-    return session
+    return format_chat_session(session)
 
 
 def get_user_chat_sessions(user_id: str):
@@ -267,9 +266,7 @@ def get_user_chat_sessions(user_id: str):
                 "_id": str(session["_id"]),
                 "title": session.get("title", "New Chat"),
                 "document_id": session.get("document_id"),
-                "created_at": session["created_at"].isoformat()
-                if session.get("created_at")
-                else None,
+                "created_at": _iso_datetime(session.get("created_at")),
             }
         )
 
@@ -287,10 +284,7 @@ def get_chat_session_by_id_for_user(chat_id: str, user_id: str):
     except Exception:
         return None
 
-    if not chat:
-        return None
-
-    return format_chat_session(chat)
+    return format_chat_session(chat) if chat else None
 
 
 # -----------------------------
@@ -302,17 +296,23 @@ def save_chat_message(
     message: str,
     answer_type: str = "plain",
     structured_answer=None,
+    citations: Optional[List[Dict[str, Any]]] = None,
 ):
+    """
+    Save a chat message and any source citations used by that answer.
+    """
     msg = {
         "chat_id": str(chat_id),
         "role": role,
         "message": message,
         "answer_type": answer_type,
         "structured_answer": structured_answer,
+        "citations": citations or [],
         "timestamp": datetime.now(timezone.utc),
     }
 
-    chat_messages_collection.insert_one(msg)
+    result = chat_messages_collection.insert_one(msg)
+    return str(result.inserted_id)
 
 
 def get_chat_messages(chat_id: str):
@@ -329,9 +329,8 @@ def get_chat_messages(chat_id: str):
                 "message": message.get("message"),
                 "answer_type": message.get("answer_type", "plain"),
                 "structured_answer": message.get("structured_answer"),
-                "timestamp": message["timestamp"].isoformat()
-                if message.get("timestamp")
-                else None,
+                "citations": message.get("citations", []),
+                "timestamp": _iso_datetime(message.get("timestamp")),
             }
         )
 

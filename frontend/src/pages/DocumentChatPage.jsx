@@ -5,7 +5,6 @@ const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
 
 const COLORS = {
   bg: "#050505",
-  panel: "#141414",
   panelDark: "#101010",
   border: "#2e2e2e",
   red: "#e53935",
@@ -14,6 +13,18 @@ const COLORS = {
   textDim: "#8f8f8f",
   assistantBubble: "#1b1b1b",
 };
+
+function normalizeLoadedMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages.map((message) => ({
+    role: message.role,
+    message: message.message || "",
+    answer_type: message.answer_type || "plain",
+    structured_answer: message.structured_answer || null,
+    citations: Array.isArray(message.citations) ? message.citations : [],
+  }));
+}
 
 function DocumentChatPage({
   user,
@@ -47,19 +58,23 @@ function DocumentChatPage({
               message: data.detail || "Could not load chat history.",
               answer_type: "plain",
               structured_answer: null,
+              citations: [],
             },
           ]);
           return;
         }
 
-        setMessages(data.messages || []);
+        setMessages(normalizeLoadedMessages(data.messages));
       } catch (error) {
+        console.error("Chat history error:", error);
+
         setMessages([
           {
             role: "assistant",
             message: "Could not load chat history.",
             answer_type: "plain",
             structured_answer: null,
+            citations: [],
           },
         ]);
       }
@@ -74,25 +89,40 @@ function DocumentChatPage({
     }
   }, [messages, loading]);
 
+  const addAssistantError = (message) => {
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "assistant",
+        message,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
     if (!document?.file_id) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "No document selected.",
-          answer_type: "plain",
-          structured_answer: null,
-        },
-      ]);
+      addAssistantError("No document selected.");
       return;
     }
 
     const question = input.trim();
 
-    setMessages((prev) => [...prev, { role: "user", message: question }]);
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        role: "user",
+        message: question,
+        answer_type: "plain",
+        structured_answer: null,
+        citations: [],
+      },
+    ]);
+
     setInput("");
     setLoading(true);
 
@@ -113,37 +143,23 @@ function DocumentChatPage({
       const data = await res.json();
 
       if (!res.ok) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            message: data.detail || "Something went wrong.",
-            answer_type: "plain",
-            structured_answer: null,
-          },
-        ]);
+        addAssistantError(data.detail || "Something went wrong.");
         return;
       }
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previousMessages) => [
+        ...previousMessages,
         {
           role: "assistant",
           message: data.answer || "No answer returned from the server.",
           answer_type: data.answer_type || "plain",
           structured_answer: data.structured_answer || null,
+          citations: Array.isArray(data.citations) ? data.citations : [],
         },
       ]);
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          message: "Could not connect to backend.",
-          answer_type: "plain",
-          structured_answer: null,
-        },
-      ]);
+      console.error("Chat request error:", error);
+      addAssistantError("Could not connect to backend.");
     } finally {
       setLoading(false);
     }
@@ -152,11 +168,7 @@ function DocumentChatPage({
   return (
     <div
       className="document-chat-page"
-      style={{
-        background: COLORS.bg,
-        minHeight: "100vh",
-        color: COLORS.textLight,
-      }}
+      style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.textLight }}
     >
       <header
         style={{
@@ -182,20 +194,22 @@ function DocumentChatPage({
           ← Dashboard
         </button>
 
-        <button
-          onClick={goToHistory}
-          style={{
-            background: COLORS.red,
-            color: COLORS.textLight,
-            border: "none",
-            borderRadius: "10px",
-            padding: "12px 22px",
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          Document History
-        </button>
+        {goToHistory && (
+          <button
+            onClick={goToHistory}
+            style={{
+              background: COLORS.red,
+              color: COLORS.textLight,
+              border: "none",
+              borderRadius: "10px",
+              padding: "12px 22px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Document History
+          </button>
+        )}
       </header>
 
       <section
@@ -225,37 +239,17 @@ function DocumentChatPage({
           </div>
 
           <div>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: "26px",
-                color: COLORS.textLight,
-              }}
-            >
+            <h1 style={{ margin: 0, fontSize: "26px", color: COLORS.textLight }}>
               RAG Assistant
             </h1>
-
-            <p
-              style={{
-                margin: "4px 0 0",
-                color: COLORS.textDim,
-                fontSize: "14px",
-              }}
-            >
+            <p style={{ margin: "4px 0 0", color: COLORS.textDim, fontSize: "14px" }}>
               Document processed
             </p>
           </div>
         </div>
 
-        {document?.chunks_count && (
-          <p
-            style={{
-              margin: 0,
-              color: COLORS.textDim,
-              fontWeight: 700,
-              fontSize: "14px",
-            }}
-          >
+        {Number(document?.chunks_count) > 0 && (
+          <p style={{ margin: 0, color: COLORS.textDim, fontWeight: 700, fontSize: "14px" }}>
             {document.chunks_count} chunks active
           </p>
         )}
@@ -295,38 +289,22 @@ function DocumentChatPage({
               marginBottom: "18px",
             }}
           >
-            <div
-              style={{
-                color: COLORS.red,
-                fontSize: "30px",
-                marginBottom: "14px",
-              }}
-            >
+            <div style={{ color: COLORS.red, fontSize: "30px", marginBottom: "14px" }}>
               ☁
             </div>
 
-            <p
-              style={{
-                margin: 0,
-                color: COLORS.textDim,
-                fontSize: "15px",
-              }}
-            >
+            <p style={{ margin: 0, color: COLORS.textDim, fontSize: "15px" }}>
               {document?.file_name || "No document selected"}
             </p>
 
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: COLORS.textDim,
-                fontSize: "13px",
-              }}
-            >
+            <p style={{ margin: "8px 0 0", color: COLORS.textDim, fontSize: "13px" }}>
               Document processed successfully
             </p>
           </div>
 
           <button
+            type="button"
+            disabled
             style={{
               width: "100%",
               background: COLORS.red,
@@ -338,9 +316,10 @@ function DocumentChatPage({
               fontSize: "15px",
               cursor: "default",
               marginBottom: "14px",
+              opacity: 0.9,
             }}
           >
-            Process Document
+            Document Processed
           </button>
 
           <div
@@ -353,7 +332,7 @@ function DocumentChatPage({
               fontSize: "14px",
             }}
           >
-            Document uploaded, processed, and stored in RAG system successfully
+            Document uploaded, processed, and stored in the RAG system successfully.
           </div>
         </aside>
 
@@ -362,6 +341,7 @@ function DocumentChatPage({
             padding: "28px 22px",
             display: "flex",
             flexDirection: "column",
+            minWidth: 0,
           }}
         >
           <h2
@@ -391,49 +371,45 @@ function DocumentChatPage({
             }}
           >
             {messages.length === 0 && !loading && (
-              <p
-                style={{
-                  color: COLORS.textDim,
-                  textAlign: "center",
-                  marginTop: "80px",
-                }}
-              >
+              <p style={{ color: COLORS.textDim, textAlign: "center", marginTop: "80px" }}>
                 Ask something about this document to get started.
               </p>
             )}
 
-            {messages.map((m, index) => (
+            {messages.map((message, index) => (
               <div
                 key={index}
                 style={{
                   display: "flex",
                   justifyContent:
-                    m.role === "user" ? "flex-end" : "flex-start",
+                    message.role === "user" ? "flex-end" : "flex-start",
                 }}
               >
                 <div
                   style={{
                     maxWidth:
-                      m.answer_type && m.answer_type !== "plain" ? "90%" : "75%",
+                      message.answer_type && message.answer_type !== "plain"
+                        ? "90%"
+                        : "75%",
                     padding: "16px 18px",
                     borderRadius: "10px",
                     background:
-                      m.role === "user" ? COLORS.red : COLORS.assistantBubble,
+                      message.role === "user" ? COLORS.red : COLORS.assistantBubble,
                     border:
-                      m.role === "assistant"
+                      message.role === "assistant"
                         ? `1px solid ${COLORS.border}`
                         : "none",
                     color: COLORS.textLight,
                     lineHeight: "1.55",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
-                    fontWeight: m.role === "user" ? 700 : 400,
+                    fontWeight: message.role === "user" ? 700 : 400,
                   }}
                 >
-                  {m.role === "assistant" ? (
-                    <StructuredAnswer message={m} accentColor={COLORS.red} />
+                  {message.role === "assistant" ? (
+                    <StructuredAnswer message={message} accentColor={COLORS.red} />
                   ) : (
-                    m.message
+                    message.message
                   )}
                 </div>
               </div>
@@ -457,17 +433,12 @@ function DocumentChatPage({
             )}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              marginTop: "16px",
-            }}
-          >
+          <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
             <input
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               placeholder="Ask something about this document..."
+              disabled={loading}
               style={{
                 flex: 1,
                 padding: "15px 16px",
@@ -477,9 +448,11 @@ function DocumentChatPage({
                 color: COLORS.textLight,
                 outline: "none",
                 fontSize: "14px",
+                opacity: loading ? 0.7 : 1,
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
                   sendMessage();
                 }
               }}
@@ -487,7 +460,7 @@ function DocumentChatPage({
 
             <button
               onClick={sendMessage}
-              disabled={loading}
+              disabled={loading || !input.trim()}
               style={{
                 background: COLORS.red,
                 color: COLORS.textLight,
@@ -496,21 +469,17 @@ function DocumentChatPage({
                 padding: "0 22px",
                 fontWeight: 800,
                 fontSize: "18px",
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading ? 0.7 : 1,
+                cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+                opacity: loading || !input.trim() ? 0.7 : 1,
               }}
-              onMouseDown={(e) => {
-                if (!loading) {
-                  e.currentTarget.style.background = COLORS.redDark;
-                }
+              onMouseDown={(event) => {
+                if (!loading) event.currentTarget.style.background = COLORS.redDark;
               }}
-              onMouseUp={(e) => {
-                if (!loading) {
-                  e.currentTarget.style.background = COLORS.red;
-                }
+              onMouseUp={(event) => {
+                if (!loading) event.currentTarget.style.background = COLORS.red;
               }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = COLORS.red;
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = COLORS.red;
               }}
             >
               ↑
@@ -525,8 +494,8 @@ function DocumentChatPage({
               margin: "8px 0 0",
             }}
           >
-            You can write your question in any language. RAG Assistant will
-            answer in English only.
+            You can write your question in any language. RAG Assistant will answer
+            in English only.
           </p>
         </section>
       </main>

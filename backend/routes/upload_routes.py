@@ -1,3 +1,5 @@
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 import os
 import uuid
@@ -35,6 +37,181 @@ def sanitize_filename(filename: str) -> str:
     return filename
 
 
+def flatten_extracted_text(extracted_content: Any) -> str:
+    """
+    Convert structured extraction output into one plain-text string.
+
+    The updated document_service may return:
+    - a plain string, or
+    - a list of source sections such as PDF pages, PPTX slides,
+      DOCX paragraphs, or spreadsheet row groups.
+
+    This helper is used only for document preview and text-length metadata.
+    Citation metadata remains attached to the chunks themselves.
+    """
+    if isinstance(extracted_content, str):
+        return extracted_content.strip()
+
+    if isinstance(extracted_content, dict):
+        direct_text = (
+            extracted_content.get("text")
+            or extracted_content.get("content")
+            or ""
+        )
+
+        nested_sections = (
+            extracted_content.get("sections")
+            or extracted_content.get("pages")
+            or extracted_content.get("slides")
+            or extracted_content.get("sheets")
+            or []
+        )
+
+        parts = []
+
+        if isinstance(direct_text, str) and direct_text.strip():
+            parts.append(direct_text.strip())
+
+        if nested_sections:
+            nested_text = flatten_extracted_text(nested_sections)
+            if nested_text:
+                parts.append(nested_text)
+
+        return "\n\n".join(parts).strip()
+
+    if isinstance(extracted_content, list):
+        parts = []
+
+        for item in extracted_content:
+            item_text = flatten_extracted_text(item)
+            if item_text:
+                parts.append(item_text)
+
+        return "\n\n".join(parts).strip()
+
+    return ""
+
+
+def normalize_chunks_for_storage(
+    chunks: List[Any],
+    file_name: str,
+    file_extension: str,
+) -> List[Dict[str, Any]]:
+    """
+    Normalize chunk_service output into citation-aware chunk objects.
+
+    Expected final structure:
+    {
+        "text": "chunk content",
+        "metadata": {
+            "chunk_index": 0,
+            "source_type": "pdf",
+            "source_label": "Page 1",
+            "page_number": 1
+        }
+    }
+
+    Plain string chunks are accepted temporarily and receive a chunk-level
+    fallback citation until detailed service-layer extraction is added.
+    """
+    normalized_chunks: List[Dict[str, Any]] = []
+
+    metadata_fields = (
+        "source_type",
+        "source_label",
+        "page_number",
+        "slide_number",
+        "sheet_name",
+        "row_start",
+        "row_end",
+        "paragraph_start",
+        "paragraph_end",
+    )
+
+    for index, chunk in enumerate(chunks):
+        if isinstance(chunk, str):
+            text = chunk.strip()
+            metadata: Dict[str, Any] = {}
+        elif isinstance(chunk, dict):
+            text = str(
+                chunk.get("text")
+                or chunk.get("content")
+                or ""
+            ).strip()
+
+            metadata = dict(chunk.get("metadata") or {})
+
+            # Accept citation fields at the top level as well.
+            for field in metadata_fields:
+                if field in chunk and field not in metadata:
+                    metadata[field] = chunk.get(field)
+        else:
+            continue
+
+        if not text:
+            continue
+
+        metadata.setdefault("chunk_index", len(normalized_chunks))
+        metadata.setdefault("source_type", file_extension)
+        metadata.setdefault("file_name", file_name)
+
+        if not metadata.get("source_label"):
+            if metadata.get("page_number") not in (None, ""):
+                metadata["source_label"] = (
+                    f"Page {metadata['page_number']}"
+                )
+            elif metadata.get("slide_number") not in (None, ""):
+                metadata["source_label"] = (
+                    f"Slide {metadata['slide_number']}"
+                )
+            elif metadata.get("sheet_name"):
+                row_start = metadata.get("row_start")
+                row_end = metadata.get("row_end")
+
+                if row_start not in (None, "") and row_end not in (None, ""):
+                    metadata["source_label"] = (
+                        f'Sheet "{metadata["sheet_name"]}", '
+                        f"Rows {row_start}-{row_end}"
+                    )
+                elif row_start not in (None, ""):
+                    metadata["source_label"] = (
+                        f'Sheet "{metadata["sheet_name"]}", '
+                        f"Row {row_start}"
+                    )
+                else:
+                    metadata["source_label"] = (
+                        f'Sheet "{metadata["sheet_name"]}"'
+                    )
+            elif metadata.get("paragraph_start") not in (None, ""):
+                paragraph_start = metadata.get("paragraph_start")
+                paragraph_end = metadata.get("paragraph_end")
+
+                if (
+                    paragraph_end not in (None, "")
+                    and str(paragraph_start) != str(paragraph_end)
+                ):
+                    metadata["source_label"] = (
+                        f"Paragraphs {paragraph_start}-{paragraph_end}"
+                    )
+                else:
+                    metadata["source_label"] = (
+                        f"Paragraph {paragraph_start}"
+                    )
+            else:
+                metadata["source_label"] = (
+                    f"Chunk {len(normalized_chunks) + 1}"
+                )
+
+        normalized_chunks.append(
+            {
+                "text": text,
+                "metadata": metadata,
+            }
+        )
+
+    return normalized_chunks
+
+
 @router.post("/upload")
 @limiter.limit("10/minute")
 async def upload_document(
@@ -56,6 +233,12 @@ async def upload_document(
 
     content = await file.read()
 
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="The selected file is empty.",
+        )
+
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
@@ -76,20 +259,31 @@ async def upload_document(
     file_path = os.path.join(UPLOAD_FOLDER, saved_file_name)
 
     try:
-        with open(file_path, "wb") as f:
-            f.write(content)
+        with open(file_path, "wb") as saved_file:
+            saved_file.write(content)
 
-        extracted_text = extract_text_from_document(file_path, file.filename)
+        extracted_content = extract_text_from_document(
+            file_path,
+            file.filename,
+        )
 
-        if not extracted_text or not extracted_text.strip():
+        extracted_text = flatten_extracted_text(extracted_content)
+
+        if not extracted_text:
             raise HTTPException(
                 status_code=400,
                 detail="Could not extract readable text from this document.",
             )
 
-        chunks = chunk_text(extracted_text)
+        raw_chunks = chunk_text(extracted_content)
 
-        if not chunks:
+        normalized_chunks = normalize_chunks_for_storage(
+            chunks=raw_chunks,
+            file_name=file.filename,
+            file_extension=file_extension,
+        )
+
+        if not normalized_chunks:
             raise HTTPException(
                 status_code=400,
                 detail="Could not split this document into searchable chunks.",
@@ -98,7 +292,7 @@ async def upload_document(
         store_chunks(
             document_id=file_id,
             user_id=user_id,
-            chunks=chunks,
+            chunks=normalized_chunks,
         )
 
         document_metadata = save_document_metadata(
@@ -109,21 +303,41 @@ async def upload_document(
             file_type=file_extension,
             text_preview=extracted_text[:500],
             full_text_length=len(extracted_text),
-            chunks_count=len(chunks),
+            chunks_count=len(normalized_chunks),
         )
 
         return {
-            "message": "Document uploaded, processed, and stored in RAG system successfully.",
+            "message": (
+                "Document uploaded, processed, and stored in the RAG "
+                "system successfully."
+            ),
             "document": document_metadata,
             "text_preview": extracted_text[:500],
             "full_text_length": len(extracted_text),
-            "chunks_count": len(chunks),
+            "chunks_count": len(normalized_chunks),
+            "citation_ready": True,
         }
 
     except HTTPException:
+        # Remove an unusable upload so failed processing does not leave
+        # orphaned files on the server.
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+
         raise
 
-    except Exception:
+    except Exception as error:
+        print("UPLOAD ERROR:", error)
+
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+
         raise HTTPException(
             status_code=500,
             detail="Something went wrong while processing the document.",
