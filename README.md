@@ -257,6 +257,4 @@ Rida Fatima Tanvir and Easha Javed
 Computer Science Undergraduate  
 FAST-NUCES Lahore  
 
-Portfolio: https://ridafatimatanvir.netlify.app/  
-GitHub: https://github.com/ridafatimat  
-LinkedIn: linkedin.com/in/rida-fatima-tanvir-797759283
+
