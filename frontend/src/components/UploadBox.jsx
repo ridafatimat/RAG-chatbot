@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import StructuredAnswer from "./StructuredAnswer";
 
 const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
@@ -18,22 +18,34 @@ async function readApiResponse(response) {
   );
 }
 
+function getFileExtension(fileName = "") {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
+}
+
+function canPreviewInBrowser(fileName = "") {
+  return [".pdf", ".png", ".jpg", ".jpeg", ".txt"].includes(
+    getFileExtension(fileName)
+  );
+}
+
 function UploadBox({ user }) {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [documentName, setDocumentName] = useState("");
-
   const [uploadedDoc, setUploadedDoc] = useState(null);
   const [chatId, setChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [openingDocument, setOpeningDocument] = useState(false);
 
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && window.innerWidth > 1024) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, sending]);
@@ -78,7 +90,7 @@ function UploadBox({ user }) {
 
       setMessage(
         data.message ||
-          "Document uploaded, processed, and stored in RAG system successfully."
+          "Document uploaded, processed, and stored in the RAG system successfully."
       );
 
       if (!data.document) {
@@ -181,9 +193,66 @@ function UploadBox({ user }) {
       ]);
     } catch (error) {
       console.error("Chat request error:", error);
-      addAssistantError("Something went wrong reaching the server.");
+      addAssistantError(
+        error?.message || "Something went wrong reaching the server."
+      );
     } finally {
       setSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const openUploadedDocument = async () => {
+    if (!uploadedDoc?.file_id || openingDocument) return;
+
+    const previewable = canPreviewInBrowser(uploadedDoc.file_name);
+    const previewWindow = previewable
+      ? window.open("about:blank", "_blank")
+      : null;
+
+    try {
+      setOpeningDocument(true);
+
+      const response = await fetch(
+        `${API_BASE_URL}/documents/file/${uploadedDoc.file_id}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const data = await readApiResponse(response);
+        throw new Error(data.detail || "Could not open the document.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      if (previewable) {
+        if (previewWindow) {
+          previewWindow.location.replace(objectUrl);
+        } else {
+          window.location.assign(objectUrl);
+        }
+      } else {
+        previewWindow?.close();
+
+        const downloadLink = window.document.createElement("a");
+        downloadLink.href = objectUrl;
+        downloadLink.download = uploadedDoc.file_name || "document";
+        window.document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      previewWindow?.close();
+      console.error("Document open error:", error);
+      setMessage(error?.message || "Could not open the uploaded document.");
+    } finally {
+      setOpeningDocument(false);
     }
   };
 
@@ -191,9 +260,11 @@ function UploadBox({ user }) {
     <div className="rag-card">
       <header className="rag-header">
         <div className="brand-block">
-          <div className="brand-icon">▣</div>
+          <div className="brand-icon" aria-hidden="true">
+            ▣
+          </div>
 
-          <div>
+          <div className="brand-copy">
             <h1>RAG Assistant</h1>
             <p>
               {uploadedDoc ? "Document processed" : "Upload a document to begin"}
@@ -220,12 +291,18 @@ function UploadBox({ user }) {
               hidden
             />
 
-            <div className="cloud-icon">☁</div>
-            <p>{documentName || "Drop file here"}</p>
+            <div className="cloud-icon" aria-hidden="true">
+              ☁
+            </div>
+
+            <p>{documentName || "Drop file here or tap to browse"}</p>
 
             <span className="file-types">
               {uploadedDoc
-                ? `${file?.name?.split(".").pop()?.toUpperCase()} document processed successfully`
+                ? `${file?.name
+                    ?.split(".")
+                    .pop()
+                    ?.toUpperCase()} document processed successfully`
                 : "PDF, TXT, DOCX, PPTX, CSV, XLSX, JPG, JPEG, PNG supported"}
             </span>
           </label>
@@ -238,7 +315,22 @@ function UploadBox({ user }) {
             {loading ? "Processing..." : "Process Document"}
           </button>
 
-          {message && <div className="small-status">{message}</div>}
+          {uploadedDoc && (
+            <button
+              type="button"
+              className="view-document-btn"
+              onClick={openUploadedDocument}
+              disabled={openingDocument}
+            >
+              {openingDocument ? "Opening..." : "View Original Document"}
+            </button>
+          )}
+
+          {message && (
+            <div className="small-status" role="status" aria-live="polite">
+              {message}
+            </div>
+          )}
 
           <p className="ocr-disclaimer">
             OCR support is currently limited to scanned PDFs and standalone
@@ -265,9 +357,11 @@ function UploadBox({ user }) {
             {uploadedDoc &&
               messages.map((chatMessage, index) => (
                 <div
-                  key={index}
+                  key={`${chatMessage.role}-${index}`}
                   className={
-                    chatMessage.role === "user" ? "user-message" : "bot-message"
+                    chatMessage.role === "user"
+                      ? "user-message"
+                      : "bot-message"
                   }
                 >
                   {chatMessage.role === "assistant" ? (
@@ -285,8 +379,9 @@ function UploadBox({ user }) {
           </div>
 
           <div className="chat-input-row">
-            <input
-              type="text"
+            <textarea
+              ref={inputRef}
+              rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={
@@ -304,6 +399,8 @@ function UploadBox({ user }) {
             />
 
             <button
+              type="button"
+              aria-label="Send message"
               onClick={sendMessage}
               disabled={!uploadedDoc || !chatId || sending || !input.trim()}
             >

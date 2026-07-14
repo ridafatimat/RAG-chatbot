@@ -1,18 +1,22 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import StructuredAnswer from "../components/StructuredAnswer";
 
 const API_BASE_URL = import.meta.env.PROD ? "/api" : "http://localhost:8000";
 
-const COLORS = {
-  bg: "#121212",
-  panel: "#1a1a1a",
-  border: "#2e2e2e",
-  red: "#e53935",
-  redDark: "#c62828",
-  textLight: "#f2f2f2",
-  textDim: "#b5b5b5",
-  assistantBubble: "#262626",
-};
+async function readApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const responseText = await response.text();
+  const preview = responseText.replace(/\s+/g, " ").trim().slice(0, 180);
+
+  throw new Error(
+    `Backend returned ${response.status}${preview ? `: ${preview}` : ""}`
+  );
+}
 
 function normalizeLoadedMessages(messages) {
   if (!Array.isArray(messages)) return [];
@@ -26,10 +30,23 @@ function normalizeLoadedMessages(messages) {
   }));
 }
 
+function getFileExtension(fileName = "") {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
+}
+
+function canPreviewInBrowser(fileName = "") {
+  return [".pdf", ".png", ".jpg", ".jpeg", ".txt"].includes(
+    getFileExtension(fileName)
+  );
+}
+
 function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [openingDocument, setOpeningDocument] = useState(false);
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     if (!chatId) return;
@@ -41,7 +58,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           credentials: "include",
         });
 
-        const data = await res.json();
+        const data = await readApiResponse(res);
 
         if (!res.ok) {
           setMessages([
@@ -63,7 +80,8 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
         setMessages([
           {
             role: "assistant",
-            message: "Could not load chat history.",
+            message:
+              error?.message || "Could not load chat history from the server.",
             answer_type: "plain",
             structured_answer: null,
             citations: [],
@@ -76,7 +94,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
   }, [chatId, setMessages]);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && window.innerWidth > 1024) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, loading]);
@@ -132,7 +150,7 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
         }),
       });
 
-      const data = await res.json();
+      const data = await readApiResponse(res);
 
       if (!res.ok) {
         addAssistantError(data.detail || "Something went wrong.");
@@ -151,153 +169,148 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
       ]);
     } catch (error) {
       console.error("Chat request error:", error);
-      addAssistantError("Could not connect to backend.");
+      addAssistantError(error?.message || "Could not connect to backend.");
     } finally {
       setLoading(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const openOriginalDocument = async () => {
+    if (!document?.file_id || openingDocument) return;
+
+    const previewable = canPreviewInBrowser(document.file_name);
+    const previewWindow = previewable
+      ? window.open("about:blank", "_blank")
+      : null;
+
+    try {
+      setOpeningDocument(true);
+
+      const response = await fetch(
+        `${API_BASE_URL}/documents/file/${document.file_id}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const data = await readApiResponse(response);
+        throw new Error(data.detail || "Could not open the document.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      if (previewable) {
+        if (previewWindow) {
+          previewWindow.location.replace(objectUrl);
+        } else {
+          window.location.assign(objectUrl);
+        }
+      } else {
+        previewWindow?.close();
+
+        const downloadLink = window.document.createElement("a");
+        downloadLink.href = objectUrl;
+        downloadLink.download = document.file_name || "document";
+        window.document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      previewWindow?.close();
+      console.error("Document open error:", error);
+      addAssistantError(error?.message || "Could not open the original document.");
+    } finally {
+      setOpeningDocument(false);
     }
   };
 
   return (
-    <div
-      className="dashboard-page"
-      style={{
-        background: COLORS.bg,
-        minHeight: "100vh",
-        color: COLORS.textLight,
-      }}
-    >
-      <header
-        className="dashboard-header"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "16px 20px",
-          borderBottom: `1px solid ${COLORS.border}`,
-        }}
-      >
-        <div
-          className="brand-block"
-          style={{ display: "flex", alignItems: "center", gap: "10px" }}
-        >
-          <div
-            className="brand-icon"
-            style={{
-              background: COLORS.red,
-              color: COLORS.textLight,
-              fontSize: "20px",
-              border: `1px solid ${COLORS.red}`,
-              borderRadius: "8px",
-              width: "34px",
-              height: "34px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+    <div className="standalone-chat-page">
+      <header className="standalone-chat-header">
+        <div className="standalone-chat-brand">
+          <div className="brand-icon small-brand-icon" aria-hidden="true">
             ▣
           </div>
 
-          <div>
-            <h1 style={{ color: COLORS.textLight, fontSize: "18px", margin: 0 }}>
-              {document?.file_name || "Document Chat"}
-            </h1>
-
-            <p style={{ color: COLORS.textDim, margin: 0, fontSize: "13px" }}>
-              Chat Session
-            </p>
+          <div className="standalone-chat-title">
+            <h1>{document?.file_name || "Document Chat"}</h1>
+            <p>Chat session</p>
           </div>
         </div>
 
-        <button
-          onClick={goBack}
-          style={{
-            background: "transparent",
-            color: COLORS.red,
-            border: `1px solid ${COLORS.red}`,
-            borderRadius: "8px",
-            padding: "8px 16px",
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          Back
-        </button>
+        <div className="standalone-chat-header-actions">
+          <button
+            type="button"
+            className="view-document-btn compact-button"
+            onClick={openOriginalDocument}
+            disabled={!document?.file_id || openingDocument}
+          >
+            {openingDocument ? "Opening..." : "View Original"}
+          </button>
+
+          <button type="button" className="outline-back-btn" onClick={goBack}>
+            Back
+          </button>
+        </div>
       </header>
 
-      <section
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          padding: "20px",
-          gap: "10px",
-        }}
-      >
-        <div
-          ref={scrollRef}
-          style={{
-            width: "100%",
-            height: "60vh",
-            overflowY: "auto",
-            background: COLORS.panel,
-            border: `1px solid ${COLORS.border}`,
-            borderRadius: "12px",
-            padding: "16px",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
+      <main className="standalone-chat-main">
+        <section className="standalone-document-strip">
+          <div className="document-strip-icon" aria-hidden="true">
+            ▣
+          </div>
+
+          <div className="document-strip-copy">
+            <strong>{document?.file_name || "No document selected"}</strong>
+            <span>
+              {document?.chunks_count ?? 0} chunks available
+              {document?.file_type ? ` • ${document.file_type.toUpperCase()}` : ""}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="document-strip-view"
+            onClick={openOriginalDocument}
+            disabled={!document?.file_id || openingDocument}
+          >
+            {openingDocument ? "Opening..." : "Open document"}
+          </button>
+        </section>
+
+        <section className="standalone-chat-window" ref={scrollRef}>
           {messages.length === 0 && !loading && (
-            <p
-              style={{
-                color: COLORS.textDim,
-                textAlign: "center",
-                marginTop: "20px",
-              }}
-            >
+            <p className="chat-empty-state">
               Ask something about this document to get started.
             </p>
           )}
 
           {messages.map((message, index) => (
             <div
-              key={index}
-              style={{
-                display: "flex",
-                justifyContent:
-                  message.role === "user" ? "flex-end" : "flex-start",
-                margin: "8px 0",
-              }}
+              key={`${message.role}-${index}`}
+              className={`chat-message-row ${
+                message.role === "user" ? "chat-message-row-user" : ""
+              }`}
             >
               <div
-                style={{
-                  maxWidth:
-                    message.answer_type && message.answer_type !== "plain"
-                      ? "90%"
-                      : "75%",
-                  padding: "10px 14px",
-                  borderRadius: "14px",
-                  background:
-                    message.role === "user"
-                      ? COLORS.red
-                      : COLORS.assistantBubble,
-                  border:
-                    message.role === "assistant"
-                      ? `1px solid ${COLORS.border}`
-                      : "none",
-                  color: COLORS.textLight,
-                  fontWeight: message.role === "user" ? 700 : 400,
-                  lineHeight: "1.4",
-                  wordBreak: "break-word",
-                  display: "inline-block",
-                  whiteSpace: "pre-wrap",
-                }}
+                className={`chat-message-bubble ${
+                  message.role === "user"
+                    ? "chat-message-bubble-user"
+                    : "chat-message-bubble-assistant"
+                } ${
+                  message.answer_type && message.answer_type !== "plain"
+                    ? "chat-message-bubble-structured"
+                    : ""
+                }`}
               >
                 {message.role === "assistant" ? (
-                  <StructuredAnswer
-                    message={message}
-                    accentColor={COLORS.red}
-                  />
+                  <StructuredAnswer message={message} accentColor="#e53935" />
                 ) : (
                   message.message
                 )}
@@ -306,45 +319,22 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           ))}
 
           {loading && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-start",
-                margin: "8px 0",
-              }}
-            >
-              <span
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "14px",
-                  background: COLORS.assistantBubble,
-                  border: `1px solid ${COLORS.border}`,
-                  color: COLORS.textDim,
-                  fontStyle: "italic",
-                }}
-              >
+            <div className="chat-message-row">
+              <div className="chat-message-bubble chat-message-bubble-assistant thinking-message">
                 Thinking...
-              </span>
+              </div>
             </div>
           )}
-        </div>
+        </section>
 
-        <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
-          <input
+        <div className="standalone-chat-composer">
+          <textarea
+            ref={inputRef}
+            rows={1}
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask something..."
+            placeholder="Ask something about this document..."
             disabled={loading}
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: "10px",
-              border: `1px solid ${COLORS.border}`,
-              background: COLORS.panel,
-              color: COLORS.textLight,
-              outline: "none",
-              opacity: loading ? 0.7 : 1,
-            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -354,44 +344,19 @@ function ChatPage({ user, document, chatId, messages, setMessages, goBack }) {
           />
 
           <button
+            type="button"
             onClick={sendMessage}
             disabled={loading || !input.trim()}
-            style={{
-              background: COLORS.red,
-              color: COLORS.textLight,
-              border: "none",
-              borderRadius: "10px",
-              padding: "12px 22px",
-              fontWeight: 700,
-              cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-              opacity: loading || !input.trim() ? 0.7 : 1,
-            }}
-            onMouseDown={(event) => {
-              if (!loading) event.currentTarget.style.background = COLORS.redDark;
-            }}
-            onMouseUp={(event) => {
-              if (!loading) event.currentTarget.style.background = COLORS.red;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.background = COLORS.red;
-            }}
           >
             Send
           </button>
         </div>
 
-        <p
-          style={{
-            color: COLORS.textDim,
-            fontSize: "12px",
-            textAlign: "center",
-            margin: "6px 0 0",
-          }}
-        >
+        <p className="standalone-chat-disclaimer">
           You can write your question in any language. RAG Assistant will answer
           in English only.
         </p>
-      </section>
+      </main>
     </div>
   );
 }

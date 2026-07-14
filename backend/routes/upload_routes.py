@@ -1,9 +1,11 @@
+import mimetypes
 import os
 import re
 import uuid
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from services.auth_service import get_current_user
 from services.chroma_service import delete_document_chunks, store_chunks
@@ -26,7 +28,7 @@ from services.rate_limiter import limiter
 
 router = APIRouter()
 
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
@@ -444,6 +446,93 @@ def get_documents(
     return {
         "documents": get_documents_by_user(current_user["_id"])
     }
+
+
+@router.get("/documents/file/{document_id}")
+@limiter.limit("60/minute")
+def open_document_file(
+    request: Request,
+    document_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Securely open or download the original uploaded file.
+
+    PDF, image, and TXT files are returned inline where supported by the
+    browser. Office files are downloaded because browsers generally cannot
+    preview them directly.
+    """
+    document = get_document_by_file_id_for_user(
+        file_id=document_id,
+        user_id=current_user["_id"],
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found or access denied.",
+        )
+
+    saved_file_name = os.path.basename(
+        str(document.get("saved_file_name") or "")
+    )
+    original_file_name = os.path.basename(
+        str(document.get("file_name") or "document")
+    )
+
+    if not saved_file_name:
+        raise HTTPException(
+            status_code=404,
+            detail="The original document file is not available.",
+        )
+
+    upload_root = os.path.abspath(UPLOAD_FOLDER)
+    file_path = os.path.abspath(
+        os.path.join(upload_root, saved_file_name)
+    )
+
+    try:
+        is_inside_upload_folder = (
+            os.path.commonpath([upload_root, file_path]) == upload_root
+        )
+    except ValueError:
+        is_inside_upload_folder = False
+
+    if not is_inside_upload_folder:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid document path.",
+        )
+
+    if not os.path.isfile(file_path):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "The original document file is no longer available. "
+                "Please upload the document again."
+            ),
+        )
+
+    media_type, _ = mimetypes.guess_type(original_file_name)
+    media_type = media_type or "application/octet-stream"
+
+    inline_media_types = {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "text/plain",
+    }
+
+    disposition = (
+        "inline" if media_type in inline_media_types else "attachment"
+    )
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=original_file_name,
+        content_disposition_type=disposition,
+    )
 
 
 @router.get("/documents/detail/{document_id}")
