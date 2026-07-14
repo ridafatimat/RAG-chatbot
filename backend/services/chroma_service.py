@@ -9,55 +9,69 @@ from services.embedding_service import get_embedding, get_embeddings
 
 load_dotenv()
 
-CHROMA_API_KEY = os.getenv("CHROMA_API_KEY")
-CHROMA_TENANT = os.getenv("CHROMA_TENANT")
-CHROMA_DATABASE = os.getenv("CHROMA_DATABASE")
 
-# Railway/local fallback path
-CHROMA_PATH = os.getenv("CHROMA_PATH", "/tmp/chroma_db")
-COLLECTION_NAME = os.getenv("CHROMA_COLLECTION", "documents")
+# ---------------------------------------------------------------------------
+# CHROMA CONFIGURATION
+# ---------------------------------------------------------------------------
 
+# Local development:
+#   ./chroma_db
+#
+# Railway production:
+#   CHROMA_PATH=/data/chroma_db
+#
+# /data must be the mount path of the Railway persistent volume.
+CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db").strip()
+COLLECTION_NAME = os.getenv("CHROMA_COLLECTION", "documents").strip()
 
 MetadataValue = str | int | float | bool
 
 
 def get_chroma_client():
     """
-    Try Chroma Cloud first. If credentials or connection fail, fall back to
-    local persistent Chroma storage so the backend can still start.
+    Always use Chroma PersistentClient.
+
+    On Railway, CHROMA_PATH should point to the attached persistent volume:
+        /data/chroma_db
+
+    This prevents vectors from disappearing after a restart or deployment.
     """
-    if CHROMA_API_KEY and CHROMA_TENANT and CHROMA_DATABASE:
-        try:
-            print("Trying Chroma Cloud connection...")
-
-            return chromadb.CloudClient(
-                api_key=CHROMA_API_KEY.strip(),
-                tenant=CHROMA_TENANT.strip(),
-                database=CHROMA_DATABASE.strip(),
-            )
-
-        except Exception as error:
-            print("Chroma Cloud connection failed.")
-            print(f"Reason: {error}")
-            print("Falling back to local Chroma storage...")
-
-    else:
-        print("Chroma Cloud env variables missing.")
-        print("Using local Chroma storage...")
+    if not CHROMA_PATH:
+        raise RuntimeError("CHROMA_PATH cannot be empty.")
 
     os.makedirs(CHROMA_PATH, exist_ok=True)
+
+    print(f"CHROMA STORAGE MODE: PersistentClient")
+    print(f"CHROMA STORAGE PATH: {os.path.abspath(CHROMA_PATH)}")
+    print(f"CHROMA COLLECTION: {COLLECTION_NAME}")
+
     return chromadb.PersistentClient(path=CHROMA_PATH)
 
 
+client = get_chroma_client()
+collection = client.get_or_create_collection(name=COLLECTION_NAME)
+
+
+# ---------------------------------------------------------------------------
+# HELPERS
+# ---------------------------------------------------------------------------
+
 def _clean_text(value: Any) -> str:
+    """
+    Convert extracted content into clean searchable text.
+    """
     if value is None:
         return ""
 
     return str(value).replace("\x00", "").strip()
 
 
-def _to_chroma_metadata(metadata: Dict[str, Any]) -> Dict[str, MetadataValue]:
-    """Convert metadata into scalar values accepted by Chroma."""
+def _to_chroma_metadata(
+    metadata: Dict[str, Any],
+) -> Dict[str, MetadataValue]:
+    """
+    Convert metadata values into scalar types accepted by Chroma.
+    """
     cleaned: Dict[str, MetadataValue] = {}
 
     for key, value in metadata.items():
@@ -72,17 +86,31 @@ def _to_chroma_metadata(metadata: Dict[str, Any]) -> Dict[str, MetadataValue]:
     return cleaned
 
 
-def _normalise_chunk(chunk: Any, index: int) -> Optional[Dict[str, Any]]:
+def _normalise_chunk(
+    chunk: Any,
+    index: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Convert either a plain string or citation-aware chunk dictionary into:
+
+    {
+        "text": "...",
+        "metadata": {...}
+    }
+    """
     if isinstance(chunk, str):
         text = _clean_text(chunk)
         metadata: Dict[str, Any] = {}
+
     elif isinstance(chunk, dict):
         text = _clean_text(
             chunk.get("text")
             or chunk.get("document")
             or chunk.get("content")
         )
+
         metadata = dict(chunk.get("metadata") or {})
+
     else:
         return None
 
@@ -98,9 +126,31 @@ def _normalise_chunk(chunk: Any, index: int) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_collection():
-    return client.get_or_create_collection(name=COLLECTION_NAME)
+def _build_where_filter(
+    document_id: str,
+    user_id: str | None = None,
+) -> Dict[str, Any]:
+    """
+    Build a secure Chroma filter.
 
+    When user_id is available, both document ownership fields must match.
+    """
+    if user_id:
+        return {
+            "$and": [
+                {"document_id": str(document_id)},
+                {"user_id": str(user_id)},
+            ]
+        }
+
+    return {
+        "document_id": str(document_id)
+    }
+
+
+# ---------------------------------------------------------------------------
+# STORE CHUNKS
+# ---------------------------------------------------------------------------
 
 def store_chunks(
     document_id: str,
@@ -108,32 +158,41 @@ def store_chunks(
     user_id: str | None = None,
 ) -> int:
     """
-    Store chunk text, batch-generated embeddings, and citation metadata.
+    Store document chunks with batch-generated embeddings and citation metadata.
 
-    All chunk embeddings are generated in one model.encode call rather than
-    one model call per chunk.
+    `upsert` is used so retrying the same upload does not create duplicate IDs.
     """
     ids: List[str] = []
     documents: List[str] = []
     metadatas: List[Dict[str, MetadataValue]] = []
 
-    for index, raw_chunk in enumerate(chunks):
-        chunk = _normalise_chunk(raw_chunk, index)
+    for original_index, raw_chunk in enumerate(chunks):
+        chunk = _normalise_chunk(
+            chunk=raw_chunk,
+            index=original_index,
+        )
 
         if not chunk:
             continue
 
+        chunk_index = len(ids)
         text = chunk["text"]
         metadata = dict(chunk["metadata"])
-        chunk_index = len(ids)
 
         metadata["document_id"] = str(document_id)
         metadata["user_id"] = str(user_id) if user_id else ""
         metadata["chunk_index"] = chunk_index
 
+        metadata.setdefault(
+            "source_label",
+            f"Chunk {chunk_index + 1}",
+        )
+
         ids.append(f"{document_id}_{chunk_index}")
         documents.append(text)
-        metadatas.append(_to_chroma_metadata(metadata))
+        metadatas.append(
+            _to_chroma_metadata(metadata)
+        )
 
     if not ids:
         return 0
@@ -141,9 +200,10 @@ def store_chunks(
     embeddings = get_embeddings(documents)
 
     if len(embeddings) != len(documents):
-        raise RuntimeError("Embedding count did not match the document chunk count.")
+        raise RuntimeError(
+            "Embedding count did not match the document chunk count."
+        )
 
-    # Upsert protects against duplicate IDs if processing is retried.
     collection.upsert(
         ids=ids,
         embeddings=embeddings,
@@ -151,8 +211,24 @@ def store_chunks(
         metadatas=metadatas,
     )
 
+    stored_count = count_document_chunks(
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    print(
+        f"CHROMA STORE COMPLETE: "
+        f"document_id={document_id}, "
+        f"uploaded_chunks={len(ids)}, "
+        f"stored_chunks={stored_count}"
+    )
+
     return len(ids)
 
+
+# ---------------------------------------------------------------------------
+# SEARCH CHUNKS
+# ---------------------------------------------------------------------------
 
 def search_chunks(
     document_id: str,
@@ -160,29 +236,49 @@ def search_chunks(
     user_id: str | None = None,
     n_results: int = 5,
 ) -> List[Dict[str, Any]]:
-    """Retrieve citation-aware source chunks."""
+    """
+    Retrieve citation-aware chunks belonging only to the requested document
+    and, when supplied, the authenticated user.
+    """
     question = _clean_text(question)
 
     if not question:
         return []
 
+    stored_count = count_document_chunks(
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if stored_count == 0:
+        print(
+            f"CHROMA SEARCH: no stored chunks found for "
+            f"document_id={document_id}, user_id={user_id}"
+        )
+        return []
+
     query_embedding = get_embedding(question)
 
-    if user_id:
-        where_filter = {
-            "$and": [
-                {"document_id": str(document_id)},
-                {"user_id": str(user_id)},
-            ]
-        }
-    else:
-        where_filter = {"document_id": str(document_id)}
+    requested_results = max(1, int(n_results))
+    safe_result_count = min(
+        requested_results,
+        stored_count,
+    )
+
+    where_filter = _build_where_filter(
+        document_id=document_id,
+        user_id=user_id,
+    )
 
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=max(1, int(n_results)),
+        n_results=safe_result_count,
         where=where_filter,
-        include=["documents", "metadatas", "distances"],
+        include=[
+            "documents",
+            "metadatas",
+            "distances",
+        ],
     )
 
     if not results:
@@ -192,9 +288,23 @@ def search_chunks(
     metadata_groups = results.get("metadatas") or []
     distance_groups = results.get("distances") or []
 
-    documents = document_groups[0] if document_groups else []
-    metadatas = metadata_groups[0] if metadata_groups else []
-    distances = distance_groups[0] if distance_groups else []
+    documents = (
+        document_groups[0]
+        if document_groups
+        else []
+    )
+
+    metadatas = (
+        metadata_groups[0]
+        if metadata_groups
+        else []
+    )
+
+    distances = (
+        distance_groups[0]
+        if distance_groups
+        else []
+    )
 
     sources: List[Dict[str, Any]] = []
 
@@ -206,39 +316,125 @@ def search_chunks(
 
         metadata = (
             dict(metadatas[index])
-            if index < len(metadatas) and metadatas[index]
+            if (
+                index < len(metadatas)
+                and metadatas[index]
+            )
             else {}
         )
-        distance = distances[index] if index < len(distances) else None
+
+        distance = (
+            distances[index]
+            if index < len(distances)
+            else None
+        )
 
         sources.append(
             {
                 "text": text,
                 "metadata": metadata,
-                "distance": float(distance) if distance is not None else None,
+                "distance": (
+                    float(distance)
+                    if distance is not None
+                    else None
+                ),
             }
         )
+
+    print(
+        f"CHROMA SEARCH COMPLETE: "
+        f"document_id={document_id}, "
+        f"stored_chunks={stored_count}, "
+        f"returned_chunks={len(sources)}"
+    )
 
     return sources
 
 
+# ---------------------------------------------------------------------------
+# COUNT / VERIFY CHUNKS
+# ---------------------------------------------------------------------------
+
+def count_document_chunks(
+    document_id: str,
+    user_id: str | None = None,
+) -> int:
+    """
+    Count vectors currently stored for a document.
+
+    This is useful for confirming that Railway volume persistence is working.
+    """
+    where_filter = _build_where_filter(
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    try:
+        results = collection.get(
+            where=where_filter,
+            include=[],
+        )
+    except Exception as error:
+        print(
+            f"CHROMA COUNT ERROR: "
+            f"document_id={document_id}, "
+            f"reason={error}"
+        )
+        return 0
+
+    ids = results.get("ids") or []
+
+    return len(ids)
+
+
+def document_chunks_exist(
+    document_id: str,
+    user_id: str | None = None,
+) -> bool:
+    """
+    Return True when at least one stored vector exists for the document.
+    """
+    return (
+        count_document_chunks(
+            document_id=document_id,
+            user_id=user_id,
+        )
+        > 0
+    )
+
+
+# ---------------------------------------------------------------------------
+# DELETE CHUNKS
+# ---------------------------------------------------------------------------
+
 def delete_document_chunks(
     document_id: str,
     user_id: str | None = None,
-) -> None:
-    """Delete all Chroma chunks belonging to one document."""
-    if user_id:
-        where_filter = {
-            "$and": [
-                {"document_id": str(document_id)},
-                {"user_id": str(user_id)},
-            ]
-        }
-    else:
-        where_filter = {"document_id": str(document_id)}
+) -> int:
+    """
+    Delete all Chroma chunks belonging to one document.
+
+    Returns the number of chunks that existed before deletion.
+    """
+    existing_count = count_document_chunks(
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if existing_count == 0:
+        return 0
+
+    where_filter = _build_where_filter(
+        document_id=document_id,
+        user_id=user_id,
+    )
 
     collection.delete(where=where_filter)
 
+    print(
+        f"CHROMA DELETE COMPLETE: "
+        f"document_id={document_id}, "
+        f"deleted_chunks={existing_count}"
+    )
 
-client = get_chroma_client()
-collection = get_collection()
+    return existing_count
